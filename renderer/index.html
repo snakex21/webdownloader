@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="pl">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WebDownloader</title>
+    <link rel="preload" href="i18n.json" as="fetch">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
@@ -542,6 +543,109 @@
     </div>
     
     <script>
+        const translations = {};
+        let currentLang = 'en';
+        let translationsLoaded = false;
+
+        async function loadTranslations() {
+            try {
+                const response = await fetch('i18n.json');
+                const data = await response.json();
+                Object.assign(translations, data);
+                translationsLoaded = true;
+            } catch (e) {
+                console.error('Failed to load translations:', e);
+                translationsLoaded = false;
+            }
+        }
+
+        function getTranslation(key) {
+            const keys = key.split('.');
+            let value = translations[currentLang];
+            for (const k of keys) {
+                if (value && value[k] !== undefined) {
+                    value = value[k];
+                } else {
+                    value = translations['en'];
+                    for (const k2 of keys) {
+                        if (value && value[k2] !== undefined) {
+                            value = value[k2];
+                        } else {
+                            return key;
+                        }
+                    }
+                    break;
+                }
+            }
+            return typeof value === 'string' ? value : key;
+        }
+
+        function applyTranslations() {
+            if (!translationsLoaded) return;
+
+            const t = translations[currentLang] || translations['en'] || {};
+
+            if (t.appTitle) document.title = t.appTitle;
+            if (t.appDescription) document.querySelector('.header p').textContent = t.appDescription;
+            if (t.labelUrl) document.querySelector('label[for="url"], .form-group label').textContent = t.labelUrl;
+            if (t.placeholderUrl) document.getElementById('url').placeholder = t.placeholderUrl;
+            if (t.labelDepth) document.querySelector('#depth').closest('.form-group').querySelector('label').textContent = t.labelDepth;
+
+            const depthSelect = document.getElementById('depth');
+            if (t.depth1) depthSelect.options[0].textContent = t.depth1;
+            if (t.depth2) depthSelect.options[1].textContent = t.depth2;
+            if (t.depth3) depthSelect.options[2].textContent = t.depth3;
+            if (t.depth4) depthSelect.options[3].textContent = t.depth4;
+            if (t.depth5) depthSelect.options[4].textContent = t.depth5;
+
+            const checkboxText = document.querySelector('.checkbox-text');
+            if (t.checkboxDownloadAll && checkboxText) checkboxText.innerHTML = '<i class="fas fa-file-archive"></i> ' + t.checkboxDownloadAll;
+
+            if (t.btnDownload) {
+                const btn = document.getElementById('downloadBtn');
+                btn.innerHTML = '<i class="fas fa-download"></i> ' + t.btnDownload;
+            }
+
+            if (t.output?.savedTo) {
+                const outputLabel = document.querySelector('.output-path');
+                if (outputLabel) outputLabel.innerHTML = t.output.savedTo + ' <span id="outputPath">-</span>';
+            }
+
+            if (t.output?.openFolder) {
+                const openBtn = document.getElementById('openFolderBtn');
+                if (openBtn) openBtn.innerHTML = '<i class="fas fa-folder-open"></i> ' + t.output.openFolder;
+            }
+
+            const statLabels = document.querySelectorAll('.stat-label');
+            if (t.stat?.pages && statLabels[0]) statLabels[0].textContent = t.stat.pages;
+            if (t.stat?.assets && statLabels[1]) statLabels[1].textContent = t.stat.assets;
+            if (t.stat?.files && statLabels[2]) statLabels[2].textContent = t.stat.files;
+            if (t.stat?.level && statLabels[3]) statLabels[3].textContent = t.stat.level;
+        }
+
+        async function initI18n() {
+            await loadTranslations();
+
+            let systemLang = 'en';
+            try {
+                systemLang = await window.api.getSystemLocale();
+            } catch (e) {
+                if (navigator.language) {
+                    systemLang = navigator.language.split('-')[0];
+                }
+            }
+
+            if (translations[systemLang]) {
+                currentLang = systemLang;
+            } else {
+                currentLang = 'en';
+            }
+
+            applyTranslations();
+        }
+
+        initI18n();
+
         const form = document.getElementById('downloadForm');
         const downloadBtn = document.getElementById('downloadBtn');
         const status = document.getElementById('status');
@@ -562,15 +666,20 @@
         
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
-            
+
+            const t = translations[currentLang] || translations['en'] || {};
+
             const url = document.getElementById('url').value;
             const depth = parseInt(document.getElementById('depth').value);
-            
+
             downloadBtn.disabled = true;
-            downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Pobieranie...';
+            downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> ' + (t.btnDownloading || 'Downloading...');
             
             status.classList.add('active');
             statusUrl.textContent = url;
+
+            const tInit = translations[currentLang] || translations['en'] || {};
+            statusTitle.textContent = tInit.statusTitle?.downloading || 'Downloading...';
             outputPath.textContent = '-';
             pageCount.textContent = '0';
             assetCount.textContent = '0';
@@ -585,9 +694,9 @@
                 const result = await window.api.download(url, depth, downloadAll);
                 
                 if (result.error) {
-                    addLog('Błąd: ' + result.error, 'error');
+                    addLog((t.error || 'Error:') + ' ' + result.error, 'error');
                     downloadBtn.disabled = false;
-                    downloadBtn.innerHTML = '<i class="fas fa-download"></i> Pobierz';
+                    downloadBtn.innerHTML = '<i class="fas fa-download"></i> ' + (t.btnDownload || 'Download');
                     return;
                 }
                 
@@ -596,7 +705,7 @@
                 outputPath.textContent = result.output;
                 openFolderBtn.style.display = 'inline-block';
                 
-                addLog('Rozpoczęto pobieranie...', 'downloading');
+                addLog(t.log.started || 'Starting download...', 'downloading');
                 
             } catch (error) {
                 addLog('Błąd: ' + error.message, 'error');
@@ -621,46 +730,55 @@
                 attachmentCount.textContent = String(Number(attachmentCount.textContent || '0') + 1);
             }
 
+            const ta = translations[currentLang] || translations['en'] || {};
+
             if (data.asset) {
-                const msg = data.status === 'attachment'
-                    ? 'Pobrano plik: ' + data.asset.substring(0, 60) + '...'
-                    : 'Pobrano asset: ' + data.asset.substring(0, 60) + '...';
+                const msgKey = data.status === 'attachment' ? 'log.attachment' : 'log.asset';
+                const prefix = ta[msgKey.split('.')[0]]?.[msgKey.split('.')[1]] || (data.status === 'attachment' ? 'Downloaded file:' : 'downloaded asset:');
+                const msg = prefix + ' ' + data.asset.substring(0, 60) + '...';
                 addLog(msg, data.status === 'attachment' ? 'attachment' : 'asset');
             } else if (data.url) {
-                const msg = data.status === 'downloading'
-                    ? 'Pobieranie: ' + data.url.substring(0, 60) + '...'
-                    : 'Pobrano: ' + data.url.substring(0, 60) + '...';
+                const prefix = data.status === 'downloading' ? (ta.log?.downloading || 'downloading:') : (ta.log?.downloaded || 'Downloaded:');
+                const msg = prefix + ' ' + data.url.substring(0, 60) + '...';
                 addLog(msg, data.status === 'downloading' ? 'downloading' : 'success');
             }
         });
         
         window.api.onComplete((data) => {
             if (data.id !== currentDownloadId) return;
-            
+
+            const t = translations[currentLang] || translations['en'] || {};
+
             statusIcon.className = 'status-icon success';
             statusIcon.innerHTML = '<i class="fas fa-check"></i>';
-            statusTitle.textContent = 'Pobieranie zakończone!';
+            statusTitle.textContent = t.statusTitle?.complete || 'Download complete!';
             downloadBtn.disabled = false;
-            downloadBtn.innerHTML = '<i class="fas fa-download"></i> Pobierz';
+            downloadBtn.innerHTML = '<i class="fas fa-download"></i> ' + (t.btnDownload || 'Download');
             progressFill.style.animation = 'none';
             progressFill.style.width = '100%';
             pageCount.textContent = String(data.count || 0);
             assetCount.textContent = String(data.assets || 0);
             attachmentCount.textContent = String(data.attachments || 0);
-            
-            addLog('Zakończono! Pobrano: ' + data.count + ' stron, ' + (data.assets || 0) + ' assetów, ' + (data.attachments || 0) + ' plików.', 'success');
+
+            const completeMsg = (t.log?.complete || 'Complete! Downloaded: {pages} pages, {assets} assets, {attachments} files.')
+                .replace('{pages}', data.count)
+                .replace('{assets}', data.assets || 0)
+                .replace('{attachments}', data.attachments || 0);
+            addLog(completeMsg, 'success');
         });
-        
+
         window.api.onError((data) => {
             if (data.id !== currentDownloadId) return;
-            
+
+            const t = translations[currentLang] || translations['en'] || {};
+
             statusIcon.className = 'status-icon error';
             statusIcon.innerHTML = '<i class="fas fa-times"></i>';
-            statusTitle.textContent = 'Błąd!';
+            statusTitle.textContent = t.statusTitle?.error || 'Error!';
             downloadBtn.disabled = false;
-            downloadBtn.innerHTML = '<i class="fas fa-download"></i> Pobierz';
-            
-            addLog('Błąd: ' + data.error, 'error');
+            downloadBtn.innerHTML = '<i class="fas fa-download"></i> ' + (t.btnDownload || 'Download');
+
+            addLog((t.error || 'Error:') + ' ' + data.error, 'error');
         });
         
         openFolderBtn.addEventListener('click', async () => {
