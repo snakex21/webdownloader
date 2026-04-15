@@ -88,32 +88,97 @@
             margin-top: 16px;
         }
 
-        .language-selector select {
-            padding: 8px 32px 8px 40px;
+        .language-dropdown {
+            position: relative;
+            display: inline-block;
+        }
+
+        .language-selected {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
             background: var(--bg-tertiary);
             border: 1px solid rgba(255, 255, 255, 0.1);
             border-radius: 8px;
             color: var(--text-secondary);
             font-size: 12px;
             cursor: pointer;
-            appearance: none;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath fill='%23a0a0b0' d='M5 7L1 3h8z'/%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 10px center;
-            background-size: 16px;
+            min-width: 140px;
         }
 
-        .language-selector select option {
-            padding-left: 30px;
-        }
-
-        .language-selector select:hover {
+        .language-selected:hover {
             border-color: var(--accent);
         }
 
-        .language-selector select:focus {
-            outline: none;
-            border-color: var(--accent);
+        .language-selected img {
+            width: 20px;
+            height: 14px;
+            object-fit: cover;
+            border-radius: 2px;
+        }
+
+        .language-selected span {
+            flex: 1;
+        }
+
+        .language-selected i {
+            font-size: 10px;
+            transition: transform 0.2s;
+        }
+
+        .language-dropdown.open .language-selected i {
+            transform: rotate(180deg);
+        }
+
+        .language-options {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 4px;
+            background: var(--bg-tertiary);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            max-height: 250px;
+            overflow-y: auto;
+            z-index: 100;
+            min-width: 150px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .language-dropdown.open .language-options {
+            display: block;
+        }
+
+        .language-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 12px;
+            color: var(--text-secondary);
+            transition: background 0.2s;
+        }
+
+        .language-option:hover {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        .language-option img {
+            width: 20px;
+            height: 14px;
+            object-fit: cover;
+            border-radius: 2px;
+        }
+
+        .flag-icon {
+            width: 20px;
+            height: 14px;
+            object-fit: cover;
+            border-radius: 2px;
         }
         
         .form-group {
@@ -484,40 +549,47 @@
             <h1>WebDownloader</h1>
             <p>Pobierz stronę internetową wraz z podstronami i zasobami</p>
             <div class="language-selector">
-                <select id="languageSelect">
-                    <option value="pl" data-flag="pl">Polski</option>
-                    <option value="en" data-flag="gb">English</option>
-                    <option value="de" data-flag="de">Deutsch</option>
-                    <option value="fr" data-flag="fr">Français</option>
-                    <option value="es" data-flag="es">Español</option>
-                    <option value="it" data-flag="it">Italiano</option>
-                    <option value="pt" data-flag="pt">Português</option>
-                    <option value="ru" data-flag="ru">Русский</option>
-                    <option value="uk" data-flag="ua">Українська</option>
-                    <option value="cs" data-flag="cz">Čeština</option>
-                    <option value="sk" data-flag="sk">Slovenčina</option>
-                    <option value="hu" data-flag="hu">Magyar</option>
-                    <option value="ro" data-flag="ro">Română</option>
-                    <option value="nl" data-flag="nl">Nederlands</option>
-                    <option value="sv" data-flag="se">Svenska</option>
-                    <option value="da" data-flag="dk">Dansk</option>
-                    <option value="fi" data-flag="fi">Suomi</option>
-                    <option value="el" data-flag="gr">Ελληνικά</option>
-                    <option value="tr" data-flag="tr">Türkçe</option>
-                    <option value="ar" data-flag="sa">العربية</option>
-                    <option value="he" data-flag="il">עברית</option>
-                    <option value="ja" data-flag="jp">日本語</option>
-                    <option value="ko" data-flag="kr">한국어</option>
-                    <option value="zh" data-flag="cn">中文</option>
-                    <option value="hi" data-flag="in">हिन्दी</option>
-                    <option value="id" data-flag="id">Bahasa Indonesia</option>
-                    <option value="vi" data-flag="vn">Tiếng Việt</option>
-                    <option value="th" data-flag="th">ไทย</option>
-                    <option value="no" data-flag="no">Norsk</option>
-                    <option value="bg" data-flag="bg">Български</option>
-                    <option value="hr" data-flag="hr">Hrvatski</option>
-                    <option value="ca" data-flag="es-ct">Català</option>
-                </select>
+                <div class="language-dropdown">
+                    <div class="language-selected" id="languageSelected">
+                        <img class="flag-icon" id="currentFlag" src="https://flagcdn.com/w20/pl.png" alt="">
+                        <span>Polski</span>
+                        <i class="fas fa-chevron-down"></i>
+                    </div>
+                    <div class="language-options" id="languageOptions">
+                        <div class="language-option" data-lang="pl" data-flag="pl"><img src="https://flagcdn.com/w20/pl.png" alt="">Polski</div>
+                        <div class="language-option" data-lang="en" data-flag="gb"><img src="https://flagcdn.com/w20/gb.png" alt="">English</div>
+                        <div class="language-option" data-lang="de" data-flag="de"><img src="https://flagcdn.com/w20/de.png" alt="">Deutsch</div>
+                        <div class="language-option" data-lang="fr" data-flag="fr"><img src="https://flagcdn.com/w20/fr.png" alt="">Français</div>
+                        <div class="language-option" data-lang="es" data-flag="es"><img src="https://flagcdn.com/w20/es.png" alt="">Español</div>
+                        <div class="language-option" data-lang="it" data-flag="it"><img src="https://flagcdn.com/w20/it.png" alt="">Italiano</div>
+                        <div class="language-option" data-lang="pt" data-flag="pt"><img src="https://flagcdn.com/w20/pt.png" alt="">Português</div>
+                        <div class="language-option" data-lang="ru" data-flag="ru"><img src="https://flagcdn.com/w20/ru.png" alt="">Русский</div>
+                        <div class="language-option" data-lang="uk" data-flag="ua"><img src="https://flagcdn.com/w20/ua.png" alt="">Українська</div>
+                        <div class="language-option" data-lang="cs" data-flag="cz"><img src="https://flagcdn.com/w20/cz.png" alt="">Čeština</div>
+                        <div class="language-option" data-lang="sk" data-flag="sk"><img src="https://flagcdn.com/w20/sk.png" alt="">Slovenčina</div>
+                        <div class="language-option" data-lang="hu" data-flag="hu"><img src="https://flagcdn.com/w20/hu.png" alt="">Magyar</div>
+                        <div class="language-option" data-lang="ro" data-flag="ro"><img src="https://flagcdn.com/w20/ro.png" alt="">Română</div>
+                        <div class="language-option" data-lang="nl" data-flag="nl"><img src="https://flagcdn.com/w20/nl.png" alt="">Nederlands</div>
+                        <div class="language-option" data-lang="sv" data-flag="se"><img src="https://flagcdn.com/w20/se.png" alt="">Svenska</div>
+                        <div class="language-option" data-lang="da" data-flag="dk"><img src="https://flagcdn.com/w20/dk.png" alt="">Dansk</div>
+                        <div class="language-option" data-lang="fi" data-flag="fi"><img src="https://flagcdn.com/w20/fi.png" alt="">Suomi</div>
+                        <div class="language-option" data-lang="el" data-flag="gr"><img src="https://flagcdn.com/w20/gr.png" alt="">Ελληνικά</div>
+                        <div class="language-option" data-lang="tr" data-flag="tr"><img src="https://flagcdn.com/w20/tr.png" alt="">Türkçe</div>
+                        <div class="language-option" data-lang="ar" data-flag="sa"><img src="https://flagcdn.com/w20/sa.png" alt="">العربية</div>
+                        <div class="language-option" data-lang="he" data-flag="il"><img src="https://flagcdn.com/w20/il.png" alt="">עברית</div>
+                        <div class="language-option" data-lang="ja" data-flag="jp"><img src="https://flagcdn.com/w20/jp.png" alt="">日本語</div>
+                        <div class="language-option" data-lang="ko" data-flag="kr"><img src="https://flagcdn.com/w20/kr.png" alt="">한국어</div>
+                        <div class="language-option" data-lang="zh" data-flag="cn"><img src="https://flagcdn.com/w20/cn.png" alt="">中文</div>
+                        <div class="language-option" data-lang="hi" data-flag="in"><img src="https://flagcdn.com/w20/in.png" alt="">हिन्दी</div>
+                        <div class="language-option" data-lang="id" data-flag="id"><img src="https://flagcdn.com/w20/id.png" alt="">Bahasa Indonesia</div>
+                        <div class="language-option" data-lang="vi" data-flag="vn"><img src="https://flagcdn.com/w20/vn.png" alt="">Tiếng Việt</div>
+                        <div class="language-option" data-lang="th" data-flag="th"><img src="https://flagcdn.com/w20/th.png" alt="">ไทย</div>
+                        <div class="language-option" data-lang="no" data-flag="no"><img src="https://flagcdn.com/w20/no.png" alt="">Norsk</div>
+                        <div class="language-option" data-lang="bg" data-flag="bg"><img src="https://flagcdn.com/w20/bg.png" alt="">Български</div>
+                        <div class="language-option" data-lang="hr" data-flag="hr"><img src="https://flagcdn.com/w20/hr.png" alt="">Hrvatski</div>
+                        <div class="language-option" data-lang="ca" data-flag="es-ct"><img src="https://flagcdn.com/w20/es-ct.png" alt="">Català</div>
+                    </div>
+                </div>
             </div>
         </div>
         
@@ -615,52 +687,49 @@
         let currentLang = 'en';
         let translationsLoaded = false;
 
-        const flagUrls = {
-            pl: 'https://flagcdn.com/w20/pl.png',
-            gb: 'https://flagcdn.com/w20/gb.png',
-            de: 'https://flagcdn.com/w20/de.png',
-            fr: 'https://flagcdn.com/w20/fr.png',
-            es: 'https://flagcdn.com/w20/es.png',
-            it: 'https://flagcdn.com/w20/it.png',
-            pt: 'https://flagcdn.com/w20/pt.png',
-            ru: 'https://flagcdn.com/w20/ru.png',
-            ua: 'https://flagcdn.com/w20/ua.png',
-            cz: 'https://flagcdn.com/w20/cz.png',
-            sk: 'https://flagcdn.com/w20/sk.png',
-            hu: 'https://flagcdn.com/w20/hu.png',
-            ro: 'https://flagcdn.com/w20/ro.png',
-            nl: 'https://flagcdn.com/w20/nl.png',
-            se: 'https://flagcdn.com/w20/se.png',
-            dk: 'https://flagcdn.com/w20/dk.png',
-            fi: 'https://flagcdn.com/w20/fi.png',
-            gr: 'https://flagcdn.com/w20/gr.png',
-            tr: 'https://flagcdn.com/w20/tr.png',
-            sa: 'https://flagcdn.com/w20/sa.png',
-            il: 'https://flagcdn.com/w20/il.png',
-            jp: 'https://flagcdn.com/w20/jp.png',
-            kr: 'https://flagcdn.com/w20/kr.png',
-            cn: 'https://flagcdn.com/w20/cn.png',
-            in: 'https://flagcdn.com/w20/in.png',
-            id: 'https://flagcdn.com/w20/id.png',
-            vn: 'https://flagcdn.com/w20/vn.png',
-            th: 'https://flagcdn.com/w20/th.png',
-            no: 'https://flagcdn.com/w20/no.png',
-            bg: 'https://flagcdn.com/w20/bg.png',
-            hr: 'https://flagcdn.com/w20/hr.png',
-            'es-ct': 'https://flagcdn.com/w20/es-ct.png'
+        const langNames = {
+            pl: 'Polski', en: 'English', de: 'Deutsch', fr: 'Français', es: 'Español',
+            it: 'Italiano', pt: 'Português', ru: 'Русский', uk: 'Українська',
+            cs: 'Čeština', sk: 'Slovenčina', hu: 'Magyar', ro: 'Română', nl: 'Nederlands',
+            sv: 'Svenska', da: 'Dansk', fi: 'Suomi', el: 'Ελληνικά', tr: 'Türkçe',
+            ar: 'العربية', he: 'עברית', ja: '日本語', ko: '한국어', zh: '中文',
+            hi: 'हिन्दी', id: 'Bahasa Indonesia', vi: 'Tiếng Việt', th: 'ไทย',
+            no: 'Norsk', bg: 'Български', hr: 'Hrvatski', ca: 'Català'
         };
 
         function updateLanguageSelectFlag() {
-            const select = document.getElementById('languageSelect');
-            const selectedOption = select.options[select.selectedIndex];
-            const flagCode = selectedOption?.dataset?.flag || currentLang;
-            const flagUrl = flagUrls[flagCode] || flagUrls[currentLang];
-            if (flagUrl) {
-                select.style.backgroundImage = `url("${flagUrl}"), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath fill='%23a0a0b0' d='M5 7L1 3h8z'/%3E%3C/svg%3E")`;
-                select.style.backgroundRepeat = 'no-repeat';
-                select.style.backgroundPosition = 'left 12px center, right 10px center';
+            const currentFlag = document.getElementById('currentFlag');
+            const languageSelected = document.getElementById('languageSelected');
+            const options = document.querySelectorAll('.language-option[data-lang="' + currentLang + '"]');
+            if (options.length > 0) {
+                const flag = options[0].querySelector('img').src;
+                if (currentFlag) currentFlag.src = flag;
+                languageSelected.querySelector('span').textContent = langNames[currentLang] || 'English';
             }
         }
+
+        document.getElementById('languageSelected')?.addEventListener('click', function() {
+            document.querySelector('.language-dropdown').classList.toggle('open');
+        });
+
+        document.querySelectorAll('.language-option').forEach(option => {
+            option.addEventListener('click', function() {
+                const newLang = this.dataset.lang;
+                if (translations[newLang] || newLang === 'en') {
+                    currentLang = newLang;
+                    localStorage.setItem('webdownloader_lang', newLang);
+                    updateLanguageSelectFlag();
+                    applyTranslations();
+                }
+                document.querySelector('.language-dropdown').classList.remove('open');
+            });
+        });
+
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.language-dropdown')) {
+                document.querySelector('.language-dropdown')?.classList.remove('open');
+            }
+        });
 
         async function loadTranslations() {
             try {
@@ -761,22 +830,11 @@
                 currentLang = 'en';
             }
 
-            document.getElementById('languageSelect').value = currentLang;
             updateLanguageSelectFlag();
             applyTranslations();
         }
 
         initI18n();
-
-        document.getElementById('languageSelect').addEventListener('change', (e) => {
-            const newLang = e.target.value;
-            if (translations[newLang] || newLang === 'en') {
-                currentLang = newLang;
-                localStorage.setItem('webdownloader_lang', newLang);
-                updateLanguageSelectFlag();
-                applyTranslations();
-            }
-        });
 
         const form = document.getElementById('downloadForm');
         const downloadBtn = document.getElementById('downloadBtn');
