@@ -122,9 +122,10 @@
             flex: 1;
         }
 
-        .language-selected i {
+        .language-selected > i {
             font-size: 10px;
             transition: transform 0.2s;
+            line-height: 1;
         }
 
         .language-dropdown.open .language-selected i {
@@ -553,7 +554,7 @@
                     <div class="language-selected" id="languageSelected">
                         <img class="flag-icon" id="currentFlag" src="https://flagcdn.com/w20/pl.png" alt="">
                         <span>Polski</span>
-                        <i class="fas fa-chevron-down"></i>
+                        <i class="fas fa-chevron-down" style="line-height: 1;"></i>
                     </div>
                     <div class="language-options" id="languageOptions">
                         <div class="language-option" data-lang="pl" data-flag="pl"><img src="https://flagcdn.com/w20/pl.png" alt="">Polski</div>
@@ -587,7 +588,7 @@
                         <div class="language-option" data-lang="no" data-flag="no"><img src="https://flagcdn.com/w20/no.png" alt="">Norsk</div>
                         <div class="language-option" data-lang="bg" data-flag="bg"><img src="https://flagcdn.com/w20/bg.png" alt="">Български</div>
                         <div class="language-option" data-lang="hr" data-flag="hr"><img src="https://flagcdn.com/w20/hr.png" alt="">Hrvatski</div>
-                        <div class="language-option" data-lang="ca" data-flag="es-ct"><img src="https://flagcdn.com/w20/es-ct.png" alt="">Català</div>
+                        <div class="language-option" data-lang="ca" data-flag="es"><img src="https://flagcdn.com/w20/es.png" alt="">Català</div>
                     </div>
                 </div>
             </div>
