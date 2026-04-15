@@ -1,7 +1,7 @@
 {
   "name": "webdownloader-desktop",
   "version": "1.0.0",
-  "description": "WebPage Downloader Desktop App",
+  "description": "Desktopowa aplikacja do pobierania stron internetowych wraz z zasobami",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -28,7 +28,8 @@
     "files": [
       "main.js",
       "preload.js",
-      "renderer/**/*"
+      "renderer/**/*",
+      "i18n.json"
     ]
   }
 }

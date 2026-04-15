@@ -9,6 +9,19 @@ if (process.platform === 'win32') {
   require('child_process').execSync('chcp 65001 > nul', { stdio: 'ignore' });
 }
 
+function getSystemLocale() {
+  if (process.platform === 'win32') {
+    try {
+      const result = require('child_process').execSync('powershell -Command "[System.Globalization.CultureInfo]::CurrentCulture.Name"', { encoding: 'utf8' });
+      return result.trim().split('-')[0];
+    } catch (e) {
+      return 'en';
+    }
+  }
+  return 'en';
+}
+
+const systemLocale = getSystemLocale();
 console.log('Aplikacja uruchomiona');
 
 let mainWindow;
@@ -376,6 +389,10 @@ ipcMain.handle('download', async (event, { url, depth, downloadAll = true }) => 
 
 ipcMain.handle('get-output-path', () => {
     return path.join(__dirname, 'output');
+});
+
+ipcMain.handle('get-system-locale', () => {
+    return systemLocale;
 });
 
 ipcMain.handle('open-folder', async (event, folderPath) => {
