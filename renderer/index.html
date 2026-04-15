@@ -690,11 +690,16 @@
             await loadTranslations();
 
             let systemLang = 'en';
-            try {
-                systemLang = await window.api.getSystemLocale();
-            } catch (e) {
-                if (navigator.language) {
-                    systemLang = navigator.language.split('-')[0];
+            const savedLang = localStorage.getItem('webdownloader_lang');
+            if (savedLang && translations[savedLang]) {
+                systemLang = savedLang;
+            } else {
+                try {
+                    systemLang = await window.api.getSystemLocale();
+                } catch (e) {
+                    if (navigator.language) {
+                        systemLang = navigator.language.split('-')[0];
+                    }
                 }
             }
 
@@ -714,6 +719,7 @@
             const newLang = e.target.value;
             if (translations[newLang] || newLang === 'en') {
                 currentLang = newLang;
+                localStorage.setItem('webdownloader_lang', newLang);
                 applyTranslations();
             }
         });
