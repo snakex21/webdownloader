@@ -1,53 +1,80 @@
 # WebDownloader
 
-Repo ma teraz z powrotem kilka trybow pracy.
+![WebDownloader](screenshot.PNG)
 
-## Tryby
+## Spis treści / Table of Contents
 
-- `Electron` - desktopowa aplikacja z GUI
-- `Python CLI` - prosty downloader dowolnej strony
-- `Express Web` - prosty interfejs w przegladarce do odpalania downloadera Python
+- [Polski](#polski)
+- [English](#english)
 
-## Uruchomienie desktop app
+---
 
-```bat
+## Polski
+
+Desktopowa aplikacja do pobierania stron internetowych wraz z podstronami, zasobami i załącznikami.
+
+### Funkcje
+
+- Pobieranie stron www z dowolną głębokością
+- Automatyczne pobieranie assetów (obrazy, CSS, JS)
+- Pobieranie załączników (PDF, ZIP, DOC, itp.)
+- Wielojęzyczny interfejs (40+ języków)
+- Automatyczne wykrywanie języka systemu
+
+### Instalacja
+
+```bash
 npm install
+```
+
+### Uruchomienie
+
+```bash
 npm start
 ```
 
-albo kliknij `run-electron.bat`.
+Lub uruchom `run-electron.bat`.
 
-## Uruchomienie web GUI
+### Uruchomienie Web GUI
 
-```bat
-npm install
+```bash
 npm run web
 ```
 
-potem wejdz na `http://localhost:3000`.
+Następnie otwórz `http://localhost:3000`.
 
-## Uruchomienie Python CLI
+---
 
-Wymagania:
-- Python 3.x
-- requests
-- beautifulsoup4
+## English
 
-Instalacja:
+Desktop application for downloading websites with subpages, resources, and attachments.
 
-```bat
-pip install requests beautifulsoup4
+### Features
+
+- Download web pages with customizable depth
+- Automatic asset downloading (images, CSS, JS)
+- Download attachments (PDF, ZIP, DOC, etc.)
+- Multi-language interface (40+ languages)
+- Automatic system language detection
+
+### Installation
+
+```bash
+npm install
 ```
 
-Uzycie:
+### Running
 
-```bat
-run.bat <URL> [folder_wyjsciowy] [glebokosc]
+```bash
+npm start
 ```
 
-Przyklady:
+Or run `run-electron.bat`.
 
-```bat
-run.bat https://example.com
-run.bat https://example.com output 2
+### Running Web GUI
+
+```bash
+npm run web
 ```
+
+Then open `http://localhost:3000`.
