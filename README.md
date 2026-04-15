@@ -1,6 +1,6 @@
 # WebDownloader
 
-![WebDownloader](screenshot.PNG)
+![WebDownloader](assets/screenshot-app.png)
 
 ## Spis treści / Table of Contents
 
