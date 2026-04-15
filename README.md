@@ -4,12 +4,12 @@
 
 ## Spis treści / Table of Contents
 
-- [Polski](#polski)
-- [English](#english)
+- [🇵🇱 Polski](#polski)
+- [🇬🇧 English](#english)
 
 ---
 
-## Polski
+## 🇵🇱 Polski
 
 Desktopowa aplikacja do pobierania stron internetowych wraz z podstronami, zasobami i załącznikami.
 
@@ -45,7 +45,7 @@ Następnie otwórz `http://localhost:3000`.
 
 ---
 
-## English
+## 🇬🇧 English
 
 Desktop application for downloading websites with subpages, resources, and attachments.
 
