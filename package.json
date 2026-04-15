@@ -2,6 +2,7 @@
   "name": "webdownloader-desktop",
   "version": "1.0.0",
   "description": "Desktopowa aplikacja do pobierania stron internetowych wraz z zasobami",
+  "author": "WebDownloader",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -23,7 +24,8 @@
       "output": "dist"
     },
     "win": {
-      "target": "portable"
+      "target": "portable",
+      "icon": "assets/icon.png"
     },
     "files": [
       "main.js",

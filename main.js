@@ -411,7 +411,9 @@ function createWindow() {
             nodeIntegration: false
         },
         backgroundColor: '#0f0f23',
-        show: false
+        show: false,
+        frame: true,
+        autoHideMenuBar: true
     });
 
     mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
@@ -427,6 +429,9 @@ function createWindow() {
 
 app.whenReady().then(() => {
     createWindow();
+
+    const menu = require('electron').Menu.buildFromTemplate([]);
+    require('electron').Menu.setApplicationMenu(menu);
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
