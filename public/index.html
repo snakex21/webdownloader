@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebDownloader</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 720px;
+            margin: 40px auto;
+            padding: 0 16px;
+        }
+        input, button {
+            width: 100%;
+            padding: 12px;
+            margin: 8px 0;
+            box-sizing: border-box;
+        }
+        pre {
+            background: #111;
+            color: #ddd;
+            padding: 12px;
+            border-radius: 8px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>WebDownloader</h1>
+    <p>Prosty tryb web do pobierania dowolnej strony.</p>
+    <input id="url" type="url" placeholder="https://example.com">
+    <input id="output" type="text" placeholder="output" value="output">
+    <input id="depth" type="number" min="1" max="5" value="2">
+    <button id="download">Pobierz</button>
+    <pre id="log">Gotowe do pracy.</pre>
+
+    <script>
+        const log = document.getElementById('log');
+        document.getElementById('download').addEventListener('click', async () => {
+            const url = document.getElementById('url').value.trim();
+            const output = document.getElementById('output').value.trim() || 'output';
+            const depth = Number(document.getElementById('depth').value || 2);
+
+            log.textContent = 'Pobieranie...';
+
+            const response = await fetch('/api/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url, output, depth })
+            });
+
+            const data = await response.json();
+            log.textContent = JSON.stringify(data, null, 2);
+        });
+    </script>
+</body>
+</html>

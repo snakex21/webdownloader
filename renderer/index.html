@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebDownloader</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --bg-primary: #0f0f23;
+            --bg-secondary: #1a1a2e;
+            --bg-tertiary: #16213e;
+            --accent: #00d9ff;
+            --accent-hover: #00b8d4;
+            --accent-glow: rgba(0, 217, 255, 0.3);
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0b0;
+            --success: #00c853;
+            --error: #ff5252;
+            --warning: #ffab00;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background-image: 
+                radial-gradient(ellipse at top, #1a1a3e 0%, transparent 50%),
+                radial-gradient(ellipse at bottom right, #0a1628 0%, transparent 50%);
+        }
+        
+        .container {
+            width: 100%;
+            max-width: 700px;
+            background: var(--bg-secondary);
+            border-radius: 24px;
+            padding: 40px;
+            box-shadow: 
+                0 25px 50px -12px rgba(0, 0, 0, 0.5),
+                0 0 100px -20px var(--accent-glow);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .header i {
+            font-size: 48px;
+            color: var(--accent);
+            margin-bottom: 16px;
+            display: block;
+            text-shadow: 0 0 30px var(--accent-glow);
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #fff 0%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .header p {
+            color: var(--text-secondary);
+            margin-top: 8px;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 24px;
+        }
+        
+        .form-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .input-wrapper {
+            position: relative;
+        }
+        
+        .input-wrapper i {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+            font-size: 16px;
+        }
+        
+        input[type="url"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 16px 16px 16px 48px;
+            background: var(--bg-tertiary);
+            border: 2px solid transparent;
+            border-radius: 12px;
+            color: var(--text-primary);
+            font-size: 16px;
+            font-family: inherit;
+            transition: all 0.3s ease;
+            appearance: none;
+        }
+        
+        select {
+            padding-right: 40px;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a0a0b0' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 16px center;
+            cursor: pointer;
+        }
+        
+        select option {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        
+        input[type="url"]:focus,
+        input[type="number"]:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px var(--accent-glow);
+        }
+        
+        input[type="url"]::placeholder {
+            color: var(--text-secondary);
+        }
+        
+        .checkbox-group {
+            margin-bottom: 24px;
+        }
+        
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            padding: 12px 16px;
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            transition: all 0.3s ease;
+        }
+        
+        .checkbox-label:hover {
+            background: var(--bg-primary);
+        }
+        
+        .checkbox-label input {
+            display: none;
+        }
+        
+        .checkbox-custom {
+            width: 20px;
+            height: 20px;
+            border: 2px solid var(--text-secondary);
+            border-radius: 4px;
+            margin-right: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+        
+        .checkbox-label input:checked + .checkbox-custom {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+        
+        .checkbox-label input:checked + .checkbox-custom::after {
+            content: '\f00c';
+            font-family: 'Font Awesome 6 Free';
+            font-weight: 900;
+            font-size: 12px;
+            color: #000;
+        }
+        
+        .checkbox-text {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        
+        .checkbox-text i {
+            margin-right: 8px;
+            color: var(--accent);
+        }
+        
+        .row {
+            display: flex;
+            gap: 16px;
+        }
+        
+        .row .form-group {
+            flex: 1;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 18px 32px;
+            background: linear-gradient(135deg, var(--accent) 0%, #0099cc 100%);
+            border: none;
+            border-radius: 12px;
+            color: #000;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px -10px var(--accent-glow);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn i {
+            font-size: 18px;
+        }
+        
+        .status {
+            margin-top: 32px;
+            display: none;
+        }
+        
+        .status.active {
+            display: block;
+        }
+        
+        .status-card {
+            background: var(--bg-tertiary);
+            border-radius: 16px;
+            padding: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .status-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        
+        .status-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+        
+        .status-icon.downloading {
+            background: rgba(0, 217, 255, 0.2);
+            color: var(--accent);
+            animation: pulse 1.5s infinite;
+        }
+        
+        .status-icon.success {
+            background: rgba(0, 200, 83, 0.2);
+            color: var(--success);
+        }
+        
+        .status-icon.error {
+            background: rgba(255, 82, 82, 0.2);
+            color: var(--error);
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .status-title {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        
+        .status-url {
+            font-size: 12px;
+            color: var(--text-secondary);
+            word-break: break-all;
+            margin-top: 4px;
+        }
+        
+        .progress-bar {
+            height: 6px;
+            background: var(--bg-primary);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 16px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--accent), #00ffcc);
+            border-radius: 3px;
+            transition: width 0.3s ease;
+            width: 0%;
+            animation: progress 1.5s ease-in-out infinite;
+        }
+        
+        @keyframes progress {
+            0% { width: 0%; margin-left: 0%; }
+            50% { width: 60%; margin-left: 20%; }
+            100% { width: 0%; margin-left: 100%; }
+        }
+        
+        .stats {
+            display: flex;
+            gap: 24px;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+        
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-top: 4px;
+        }
+        
+        .output-path {
+            margin-top: 16px;
+            padding: 12px 16px;
+            background: var(--bg-primary);
+            border-radius: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            word-break: break-all;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .output-path span {
+            color: var(--accent);
+        }
+        
+        .output-path .open-btn {
+            background: var(--accent);
+            color: #000;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 10px;
+            white-space: nowrap;
+        }
+        
+        .output-path .open-btn:hover {
+            background: var(--accent-hover);
+        }
+        
+        .log {
+            margin-top: 16px;
+            max-height: 150px;
+            overflow-y: auto;
+            font-family: 'Consolas', monospace;
+            font-size: 11px;
+            color: var(--text-secondary);
+            background: var(--bg-primary);
+            padding: 12px;
+            border-radius: 8px;
+        }
+        
+        .log-item {
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+        }
+        
+        .log-item.success { color: var(--success); }
+        .log-item.error { color: var(--error); }
+        .log-item.downloading { color: var(--accent); }
+        .log-item.asset { color: var(--warning); }
+        .log-item.attachment { color: #ff69b4; }
+        
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--accent);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <i class="fas fa-globe"></i>
+            <h1>WebDownloader</h1>
+            <p>Pobierz stronę internetową wraz z podstronami i zasobami</p>
+        </div>
+        
+        <form id="downloadForm">
+            <div class="form-group">
+                <label>Adres strony</label>
+                <div class="input-wrapper">
+                    <i class="fas fa-link"></i>
+                    <input type="url" id="url" placeholder="https://skokimanager.pl" required>
+                </div>
+            </div>
+            
+            <div class="row">
+                <div class="form-group">
+                    <label>Głębokość</label>
+                    <div class="input-wrapper">
+                        <i class="fas fa-layer-group"></i>
+                        <select id="depth">
+                            <option value="1">1 - Tylko główna strona</option>
+                            <option value="2" selected>2 - Główna + podstrony</option>
+                            <option value="3">3 - Główna + 2 poziomy</option>
+                            <option value="4">4 - Główna + 3 poziomy</option>
+                            <option value="5">5 - Wszystkie poziomy</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="checkbox-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="downloadAll" checked>
+                    <span class="checkbox-custom"></span>
+                    <span class="checkbox-text">
+                        <i class="fas fa-file-archive"></i>
+                        Pobierz wszystkie pliki (PDF, ZIP, DOC, itp.)
+                    </span>
+                </label>
+            </div>
+            
+            <button type="submit" class="btn" id="downloadBtn">
+                <i class="fas fa-download"></i>
+                Pobierz
+            </button>
+        </form>
+        
+        <div class="status" id="status">
+            <div class="status-card">
+                <div class="status-header">
+                    <div class="status-icon downloading" id="statusIcon">
+                        <i class="fas fa-spinner"></i>
+                    </div>
+                    <div>
+                        <div class="status-title" id="statusTitle">Pobieranie...</div>
+                        <div class="status-url" id="statusUrl"></div>
+                    </div>
+                </div>
+                
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill"></div>
+                </div>
+                
+                <div class="stats">
+                    <div class="stat">
+                        <div class="stat-value" id="pageCount">0</div>
+                        <div class="stat-label">Stron</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="assetCount">0</div>
+                        <div class="stat-label">Assetów</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="attachmentCount">0</div>
+                        <div class="stat-label">Pliki</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="depthLevel">0</div>
+                        <div class="stat-label">Poziom</div>
+                    </div>
+                </div>
+                
+                <div class="output-path">
+                    <div>Zapisano do: <span id="outputPath">-</span></div>
+                    <button class="open-btn" id="openFolderBtn" style="display: none;">
+                        <i class="fas fa-folder-open"></i> Otwórz
+                    </button>
+                </div>
+                
+                <div class="log" id="log"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const form = document.getElementById('downloadForm');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const status = document.getElementById('status');
+        const statusIcon = document.getElementById('statusIcon');
+        const statusTitle = document.getElementById('statusTitle');
+        const statusUrl = document.getElementById('statusUrl');
+        const progressFill = document.getElementById('progressFill');
+        const pageCount = document.getElementById('pageCount');
+        const assetCount = document.getElementById('assetCount');
+        const attachmentCount = document.getElementById('attachmentCount');
+        const depthLevel = document.getElementById('depthLevel');
+        const outputPath = document.getElementById('outputPath');
+        const openFolderBtn = document.getElementById('openFolderBtn');
+        const log = document.getElementById('log');
+        
+        let currentOutputPath = null;
+        let currentDownloadId = null;
+        
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const url = document.getElementById('url').value;
+            const depth = parseInt(document.getElementById('depth').value);
+            
+            downloadBtn.disabled = true;
+            downloadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Pobieranie...';
+            
+            status.classList.add('active');
+            statusUrl.textContent = url;
+            outputPath.textContent = '-';
+            pageCount.textContent = '0';
+            assetCount.textContent = '0';
+            attachmentCount.textContent = '0';
+            depthLevel.textContent = '0';
+            log.innerHTML = '';
+            openFolderBtn.style.display = 'none';
+            
+            const downloadAll = document.getElementById('downloadAll').checked;
+            
+            try {
+                const result = await window.api.download(url, depth, downloadAll);
+                
+                if (result.error) {
+                    addLog('Błąd: ' + result.error, 'error');
+                    downloadBtn.disabled = false;
+                    downloadBtn.innerHTML = '<i class="fas fa-download"></i> Pobierz';
+                    return;
+                }
+                
+                currentDownloadId = result.id;
+                currentOutputPath = result.output;
+                outputPath.textContent = result.output;
+                openFolderBtn.style.display = 'inline-block';
+                
+                addLog('Rozpoczęto pobieranie...', 'downloading');
+                
+            } catch (error) {
+                addLog('Błąd: ' + error.message, 'error');
+                downloadBtn.disabled = false;
+                downloadBtn.innerHTML = '<i class="fas fa-download"></i> Pobierz';
+            }
+        });
+        
+        window.api.onProgress((data) => {
+            if (data.id !== currentDownloadId) return;
+
+            if (data.count !== undefined) pageCount.textContent = String(data.count);
+            if (data.assets !== undefined) assetCount.textContent = String(data.assets);
+            if (data.attachments !== undefined) attachmentCount.textContent = String(data.attachments);
+            if (data.depth !== undefined) depthLevel.textContent = String(data.depth);
+
+            if (data.status === 'asset' && data.assets === undefined) {
+                assetCount.textContent = String(Number(assetCount.textContent || '0') + 1);
+            }
+
+            if (data.status === 'attachment' && data.attachments === undefined) {
+                attachmentCount.textContent = String(Number(attachmentCount.textContent || '0') + 1);
+            }
+
+            if (data.asset) {
+                const msg = data.status === 'attachment'
+                    ? 'Pobrano plik: ' + data.asset.substring(0, 60) + '...'
+                    : 'Pobrano asset: ' + data.asset.substring(0, 60) + '...';
+                addLog(msg, data.status === 'attachment' ? 'attachment' : 'asset');
+            } else if (data.url) {
+                const msg = data.status === 'downloading'
+                    ? 'Pobieranie: ' + data.url.substring(0, 60) + '...'
+                    : 'Pobrano: ' + data.url.substring(0, 60) + '...';
+                addLog(msg, data.status === 'downloading' ? 'downloading' : 'success');
+            }
+        });
+        
+        window.api.onComplete((data) => {
+            if (data.id !== currentDownloadId) return;
+            
+            statusIcon.className = 'status-icon success';
+            statusIcon.innerHTML = '<i class="fas fa-check"></i>';
+            statusTitle.textContent = 'Pobieranie zakończone!';
+            downloadBtn.disabled = false;
+            downloadBtn.innerHTML = '<i class="fas fa-download"></i> Pobierz';
+            progressFill.style.animation = 'none';
+            progressFill.style.width = '100%';
+            pageCount.textContent = String(data.count || 0);
+            assetCount.textContent = String(data.assets || 0);
+            attachmentCount.textContent = String(data.attachments || 0);
+            
+            addLog('Zakończono! Pobrano: ' + data.count + ' stron, ' + (data.assets || 0) + ' assetów, ' + (data.attachments || 0) + ' plików.', 'success');
+        });
+        
+        window.api.onError((data) => {
+            if (data.id !== currentDownloadId) return;
+            
+            statusIcon.className = 'status-icon error';
+            statusIcon.innerHTML = '<i class="fas fa-times"></i>';
+            statusTitle.textContent = 'Błąd!';
+            downloadBtn.disabled = false;
+            downloadBtn.innerHTML = '<i class="fas fa-download"></i> Pobierz';
+            
+            addLog('Błąd: ' + data.error, 'error');
+        });
+        
+        openFolderBtn.addEventListener('click', async () => {
+            if (currentOutputPath) {
+                await window.api.openFolder(currentOutputPath);
+            }
+        });
+        
+        function addLog(message, type) {
+            const item = document.createElement('div');
+            item.className = 'log-item ' + type;
+            item.textContent = '[' + new Date().toLocaleTimeString() + '] ' + message;
+            log.insertBefore(item, log.firstChild);
+        }
+    </script>
+</body>
+</html>
