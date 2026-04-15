@@ -83,6 +83,33 @@
             margin-top: 8px;
             font-size: 14px;
         }
+
+        .language-selector {
+            margin-top: 16px;
+        }
+
+        .language-selector select {
+            padding: 8px 32px 8px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            font-size: 12px;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath fill='%23a0a0b0' d='M5 7L1 3h8z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+        }
+
+        .language-selector select:hover {
+            border-color: var(--accent);
+        }
+
+        .language-selector select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
         
         .form-group {
             margin-bottom: 24px;
@@ -451,6 +478,42 @@
             <i class="fas fa-globe"></i>
             <h1>WebDownloader</h1>
             <p>Pobierz stronę internetową wraz z podstronami i zasobami</p>
+            <div class="language-selector">
+                <select id="languageSelect">
+                    <option value="pl">Polski</option>
+                    <option value="en">English</option>
+                    <option value="de">Deutsch</option>
+                    <option value="fr">Français</option>
+                    <option value="es">Español</option>
+                    <option value="it">Italiano</option>
+                    <option value="pt">Português</option>
+                    <option value="ru">Русский</option>
+                    <option value="uk">Українська</option>
+                    <option value="cs">Čeština</option>
+                    <option value="sk">Slovenčina</option>
+                    <option value="hu">Magyar</option>
+                    <option value="ro">Română</option>
+                    <option value="nl">Nederlands</option>
+                    <option value="sv">Svenska</option>
+                    <option value="da">Dansk</option>
+                    <option value="fi">Suomi</option>
+                    <option value="el">Ελληνικά</option>
+                    <option value="tr">Türkçe</option>
+                    <option value="ar">العربية</option>
+                    <option value="he">עברית</option>
+                    <option value="ja">日本語</option>
+                    <option value="ko">한국어</option>
+                    <option value="zh">中文</option>
+                    <option value="hi">हिन्दी</option>
+                    <option value="id">Bahasa Indonesia</option>
+                    <option value="vi">Tiếng Việt</option>
+                    <option value="th">ไทย</option>
+                    <option value="no">Norsk</option>
+                    <option value="bg">Български</option>
+                    <option value="hr">Hrvatski</option>
+                    <option value="ca">Català</option>
+                </select>
+            </div>
         </div>
         
         <form id="downloadForm">
@@ -641,10 +704,19 @@
                 currentLang = 'en';
             }
 
+            document.getElementById('languageSelect').value = currentLang;
             applyTranslations();
         }
 
         initI18n();
+
+        document.getElementById('languageSelect').addEventListener('change', (e) => {
+            const newLang = e.target.value;
+            if (translations[newLang] || newLang === 'en') {
+                currentLang = newLang;
+                applyTranslations();
+            }
+        });
 
         const form = document.getElementById('downloadForm');
         const downloadBtn = document.getElementById('downloadBtn');
