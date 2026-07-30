@@ -6,7 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"path/filepath"
+	"os"
 
 	webview "github.com/webview/webview_go"
 
@@ -20,28 +20,44 @@ const (
 )
 
 func main() {
+	os.Exit(realMain())
+}
+
+func realMain() int {
 	debug := flag.Bool("debug", false, "enable webview devtools")
+	portable := flag.Bool("portable", false, "store settings, logs and downloads next to the executable")
 	flag.Parse()
 
-	if err := run(*debug); err != nil {
-		log.Fatal(err)
+	if err := configureStorage(*portable); err != nil {
+		showFatalError(applicationTitle, err.Error())
+		return 1
 	}
+
+	logFile, err := setupLogging()
+	if err != nil {
+		showFatalError(applicationTitle, err.Error())
+		return 1
+	}
+	defer logFile.Close()
+
+	if err := run(*debug); err != nil {
+		log.Printf("fatal error: %v", err)
+		showFatalError(applicationTitle, err.Error())
+		return 1
+	}
+	return 0
 }
 
 func run(debug bool) error {
-	htmlBytes, err := webui.HTML()
+	uiServer, err := webui.StartServer()
 	if err != nil {
-		return fmt.Errorf("load embedded UI: %w", err)
+		return fmt.Errorf("start embedded UI server: %w", err)
 	}
+	defer uiServer.Close()
 
 	translations, err := webui.Translations()
 	if err != nil {
 		return fmt.Errorf("load embedded translations: %w", err)
-	}
-
-	htmlPath, err := writeHTMLToTemp(htmlBytes)
-	if err != nil {
-		return fmt.Errorf("prepare UI: %w", err)
 	}
 
 	window := webview.New(debug)
@@ -58,7 +74,7 @@ func run(debug bool) error {
 	}
 
 	window.Init("window.__goReady = true;")
-	window.Navigate("file:///" + filepath.ToSlash(htmlPath))
+	window.Navigate(uiServer.URL)
 	window.Run()
 	saveWindowSize(uintptr(window.Window()))
 	return nil

@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - "agent/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Verify formatting
+        shell: pwsh
+        run: |
+          $goFiles = Get-ChildItem cmd, internal, tools/examples -Recurse -Filter *.go |
+            Select-Object -ExpandProperty FullName
+          $unformatted = gofmt -l $goFiles
+          if ($unformatted) {
+            $unformatted
+            throw "Go files are not formatted"
+          }
+
+      - name: Run static analysis
+        run: go vet ./...
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build Windows executable
+        shell: cmd
+        run: build.bat
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: webdownloader-windows-amd64
+          path: webdownloader.exe
+          if-no-files-found: error
+          retention-days: 14

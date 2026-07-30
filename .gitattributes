@@ -8,3 +8,4 @@
 
 *.png binary
 *.syso binary
+*.woff2 binary

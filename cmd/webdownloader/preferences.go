@@ -6,13 +6,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
+
+var prefsMu sync.Mutex
 
 func (a *api) i18n() map[string]any {
 	return a.ui
 }
 
 func (a *api) savePrefs(data string) string {
+	prefsMu.Lock()
+	defer prefsMu.Unlock()
+
 	incoming := map[string]any{}
 	if strings.TrimSpace(data) != "" {
 		if err := json.Unmarshal([]byte(data), &incoming); err != nil {
@@ -36,6 +42,9 @@ func (a *api) savePrefs(data string) string {
 }
 
 func (a *api) loadPrefs() string {
+	prefsMu.Lock()
+	defer prefsMu.Unlock()
+
 	data, err := os.ReadFile(prefsPath())
 	if err != nil {
 		return ""
@@ -44,6 +53,9 @@ func (a *api) loadPrefs() string {
 }
 
 func (a *api) deleteHistoryItem(id string) string {
+	prefsMu.Lock()
+	defer prefsMu.Unlock()
+
 	prefs := readPrefsMap()
 	rawHistory, ok := prefs["history"].([]any)
 	if !ok {
@@ -67,11 +79,14 @@ func (a *api) deleteHistoryItem(id string) string {
 }
 
 func prefsPath() string {
-	executable, err := os.Executable()
-	if err != nil {
-		executable = "webdownloader"
+	if appStorage.prefsFile != "" {
+		return appStorage.prefsFile
 	}
-	return filepath.Join(filepath.Dir(executable), "prefs.json")
+	executableDir, err := executableDirectory()
+	if err != nil {
+		return "prefs.json"
+	}
+	return filepath.Join(executableDir, "prefs.json")
 }
 
 func readPrefsMap() map[string]any {
@@ -84,6 +99,12 @@ func readPrefsMap() map[string]any {
 		return map[string]any{}
 	}
 	return prefs
+}
+
+func readPrefsSnapshot() map[string]any {
+	prefsMu.Lock()
+	defer prefsMu.Unlock()
+	return readPrefsMap()
 }
 
 func jsonMarshalPrefs(prefs map[string]any) ([]byte, error) {
