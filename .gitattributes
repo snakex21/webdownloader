@@ -1,0 +1,11 @@
+* text=auto
+
+*.bat text eol=crlf
+*.go text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+
+*.png binary
+*.syso binary
+*.woff2 binary
