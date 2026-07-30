@@ -1,5 +1,5 @@
 @echo off
-REM Build script: produces a single Windows .exe in build\
+REM Build script: produces a single Windows .exe in the project directory
 REM   - Hides the console window (-H windowsgui)
 REM   - Strips symbol/debug info (-s -w) to shrink the binary
 
@@ -7,10 +7,8 @@ set CGO_ENABLED=1
 set GOOS=windows
 set GOARCH=amd64
 
-if not exist build mkdir build
-
 echo Building webdownloader.exe ...
-go build -ldflags="-H windowsgui -s -w" -o build\webdownloader.exe .
+go build -ldflags="-H windowsgui -s -w" -o webdownloader.exe .\cmd\webdownloader
 if errorlevel 1 (
     echo.
     echo Build FAILED.
@@ -18,4 +16,4 @@ if errorlevel 1 (
 )
 
 echo.
-echo OK -^> build\webdownloader.exe
+echo OK -^> webdownloader.exe
