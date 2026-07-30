@@ -1,7 +1,7 @@
 // Command mythos runs a downloader.Download against https://mythos.observer/
 // using the real network. Useful for smoke-testing the rewrites end to end.
 //
-//	go run ./examples/mythos [depth]
+//	go run ./tools/examples/mythos [depth]
 //
 // Output goes to <exe-dir>/output/mythos.observer.
 package main

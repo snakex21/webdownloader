@@ -44,30 +44,30 @@ func pickFolderCOM(hwnd uintptr) (string, error) {
 		Data4: [8]byte{0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60},
 	}
 
-	var dialogPtr uintptr
+	var dialog *comObject
 	hr, _, _ := procCoCreateInstance.Call(
 		uintptr(unsafe.Pointer(&clsid)),
-		0,            // pUnkOuter = NULL
-		0x17,         // CLSCTX_ALL
+		0,    // pUnkOuter = NULL
+		0x17, // CLSCTX_ALL
 		uintptr(unsafe.Pointer(&iid)),
-		uintptr(unsafe.Pointer(&dialogPtr)),
+		uintptr(unsafe.Pointer(&dialog)),
 	)
-	if hr != 0 {
+	if hr != 0 || dialog == nil {
 		return "", fmt.Errorf("CoCreateInstance hr=0x%X", uint32(hr))
 	}
-	defer releaseCOM(dialogPtr)
+	defer releaseCOM(dialog)
 
 	// FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM
-	vtableSetOptions(dialogPtr, 0x60)
-	vtableSetTitle(dialogPtr, "Wybierz folder docelowy")
+	vtableSetOptions(dialog, 0x60)
+	vtableSetTitle(dialog, "Wybierz folder docelowy")
 
 	// Show(parentHWND) — modal to our window.
-	hr, _, _ = vtableShow(dialogPtr, hwnd)
+	hr, _, _ = vtableShow(dialog, hwnd)
 	if hr != 0 { // S_OK = 0; anything else = cancel or error
 		return "", nil
 	}
 
-	return vtableGetResultPath(dialogPtr)
+	return vtableGetResultPath(dialog)
 }
 
 // --- VTable helpers (IFileOpenDialog / IShellItem) ---
@@ -79,75 +79,69 @@ func pickFolderCOM(hwnd uintptr) (string, error) {
 // SetTitle   = index 17  (IFileDialog)
 // GetResult  = index 20  (IFileDialog)
 
-func vtableShow(dlg, hwnd uintptr) (uintptr, uintptr, error) {
-	vtbl := *(*uintptr)(unsafe.Pointer(dlg))
-	proc := *(*uintptr)(unsafe.Pointer(vtbl + 3*8))
-	return syscall.SyscallN(proc, dlg, hwnd)
+type comObject struct {
+	vtable *[21]uintptr
 }
 
-func vtableSetOptions(dlg uintptr, flags uint32) {
-	vtbl := *(*uintptr)(unsafe.Pointer(dlg))
-	proc := *(*uintptr)(unsafe.Pointer(vtbl + 9*8))
-	syscall.SyscallN(proc, dlg, uintptr(flags))
+func vtableShow(dialog *comObject, hwnd uintptr) (uintptr, uintptr, error) {
+	return syscall.SyscallN(
+		dialog.vtable[3],
+		uintptr(unsafe.Pointer(dialog)),
+		hwnd,
+	)
 }
 
-func vtableSetTitle(dlg uintptr, title string) {
-	p, _ := syscall.UTF16PtrFromString(title)
-	vtbl := *(*uintptr)(unsafe.Pointer(dlg))
-	proc := *(*uintptr)(unsafe.Pointer(vtbl + 17*8))
-	syscall.SyscallN(proc, dlg, uintptr(unsafe.Pointer(p)))
+func vtableSetOptions(dialog *comObject, flags uint32) {
+	syscall.SyscallN(
+		dialog.vtable[9],
+		uintptr(unsafe.Pointer(dialog)),
+		uintptr(flags),
+	)
 }
 
-func vtableGetResultPath(dlg uintptr) (string, error) {
-	vtbl := *(*uintptr)(unsafe.Pointer(dlg))
-	getResultProc := *(*uintptr)(unsafe.Pointer(vtbl + 20*8))
+func vtableSetTitle(dialog *comObject, title string) {
+	titlePtr, _ := syscall.UTF16PtrFromString(title)
+	syscall.SyscallN(
+		dialog.vtable[17],
+		uintptr(unsafe.Pointer(dialog)),
+		uintptr(unsafe.Pointer(titlePtr)),
+	)
+}
 
-	var itemPtr uintptr
-	hr, _, _ := syscall.SyscallN(getResultProc, dlg, uintptr(unsafe.Pointer(&itemPtr)))
-	if hr != 0 || itemPtr == 0 {
+func vtableGetResultPath(dialog *comObject) (string, error) {
+	var item *comObject
+	hr, _, _ := syscall.SyscallN(
+		dialog.vtable[20],
+		uintptr(unsafe.Pointer(dialog)),
+		uintptr(unsafe.Pointer(&item)),
+	)
+	if hr != 0 || item == nil {
 		return "", fmt.Errorf("GetResult hr=0x%X", uint32(hr))
 	}
-	defer releaseCOM(itemPtr)
+	defer releaseCOM(item)
 
 	// IShellItem::GetDisplayName — vtable index 5
 	// SIGDN_FILESYSPATH = 0x80058000
-	itemVtbl := *(*uintptr)(unsafe.Pointer(itemPtr))
-	getNameProc := *(*uintptr)(unsafe.Pointer(itemVtbl + 5*8))
-
-	var pathPtr uintptr
-	hr, _, _ = syscall.SyscallN(getNameProc, itemPtr, 0x80058000, uintptr(unsafe.Pointer(&pathPtr)))
-	if hr != 0 || pathPtr == 0 {
+	var pathPtr *uint16
+	hr, _, _ = syscall.SyscallN(
+		item.vtable[5],
+		uintptr(unsafe.Pointer(item)),
+		0x80058000,
+		uintptr(unsafe.Pointer(&pathPtr)),
+	)
+	if hr != 0 || pathPtr == nil {
 		return "", fmt.Errorf("GetDisplayName hr=0x%X", uint32(hr))
 	}
-	defer procCoTaskMemFree.Call(pathPtr)
+	defer procCoTaskMemFree.Call(uintptr(unsafe.Pointer(pathPtr)))
 
-	return utf16PtrToString(pathPtr), nil
+	return windows.UTF16PtrToString(pathPtr), nil
 }
 
-func releaseCOM(obj uintptr) {
-	if obj == 0 {
+func releaseCOM(object *comObject) {
+	if object == nil {
 		return
 	}
-	vtbl := *(*uintptr)(unsafe.Pointer(obj))
-	proc := *(*uintptr)(unsafe.Pointer(vtbl + 2*8)) // Release
-	syscall.SyscallN(proc, obj)
-}
-
-func utf16PtrToString(ptr uintptr) string {
-	if ptr == 0 {
-		return ""
-	}
-	var n int
-	for p := ptr; ; p += 2 {
-		if *(*uint16)(unsafe.Pointer(p)) == 0 {
-			break
-		}
-		n++
-	}
-	if n == 0 {
-		return ""
-	}
-	return syscall.UTF16ToString(unsafe.Slice((*uint16)(unsafe.Pointer(ptr)), n))
+	syscall.SyscallN(object.vtable[2], uintptr(unsafe.Pointer(object)))
 }
 
 // ---------- PowerShell fallback -------------------------------------------
@@ -184,9 +178,9 @@ if ($folder) {
 // ---------- Lazy DLL/proc -------------------------------------------------
 
 var (
-	ole32               = windows.NewLazySystemDLL("ole32.dll")
-	procCoInitializeEx  = ole32.NewProc("CoInitializeEx")
-	procCoUninitialize  = ole32.NewProc("CoUninitialize")
+	ole32                = windows.NewLazySystemDLL("ole32.dll")
+	procCoInitializeEx   = ole32.NewProc("CoInitializeEx")
+	procCoUninitialize   = ole32.NewProc("CoUninitialize")
 	procCoCreateInstance = ole32.NewProc("CoCreateInstance")
-	procCoTaskMemFree   = ole32.NewProc("CoTaskMemFree")
+	procCoTaskMemFree    = ole32.NewProc("CoTaskMemFree")
 )
