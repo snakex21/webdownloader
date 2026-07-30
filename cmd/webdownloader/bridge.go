@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"strings"
 
 	webview "github.com/webview/webview_go"
@@ -66,19 +64,4 @@ func (a *api) fire(event, id string, payload any) {
 		)
 		a.w.Eval(script)
 	})
-}
-
-// writeHTMLToTemp extracts the embedded frontend to a file URL so WebView2
-// can use localStorage and other origin-bound browser APIs.
-func writeHTMLToTemp(html []byte) (string, error) {
-	dir := filepath.Join(os.TempDir(), "webdownloader")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-
-	path := filepath.Join(dir, "index.html")
-	if err := os.WriteFile(path, html, 0o644); err != nil {
-		return "", err
-	}
-	return path, nil
 }
