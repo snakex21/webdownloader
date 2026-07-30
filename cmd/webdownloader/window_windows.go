@@ -11,8 +11,6 @@ import (
 const (
 	defaultWindowWidth  = 1100
 	defaultWindowHeight = 820
-	minWindowWidth      = 900
-	minWindowHeight     = 720
 	maxWindowWidth      = 3840
 	maxWindowHeight     = 2160
 )

@@ -7,7 +7,7 @@ The whole UI is a single HTML file embedded in the binary; the
 application logic (HTTP fetching, HTML rewriting, BFS crawl) runs natively
 in Go. No Node.js, no Electron, no separate web server.
 
-![WebDownloader](assets/screenshot-app.PNG)
+![WebDownloader](docs/images/screenshot-app.png)
 
 ## Features
 
@@ -34,41 +34,56 @@ in Go. No Node.js, no Electron, no separate web server.
 git clone <repo>
 cd webdownloader
 go mod download
-run.bat
-```
-
-`run.bat` builds the binary into `build\webdownloader.exe` (if missing)
-and launches it. To rebuild from scratch:
-
-```bat
 build.bat
 ```
 
-The resulting `build\webdownloader.exe` is fully self-contained
-(HTML + translations embedded) and can be copied anywhere.
+The resulting `webdownloader.exe` is created in the project directory. It
+contains the application icon, HTML, and translations, so it can be copied
+and run as a standalone file.
+
+For development checks:
+
+```bat
+go test ./...
+go vet ./...
+```
 
 ## Layout
 
 ```
 .
-├── main.go                  # entry point + webview bindings
-├── pickdir_windows.go       # native folder picker (Windows, via PowerShell)
-├── pickdir_other.go         # stub for non-Windows
+├── cmd/
+│   └── webdownloader/
+│       ├── main.go          # application startup
+│       ├── api.go           # frontend RPC state
+│       ├── bridge.go        # webview bindings and events
+│       ├── download.go      # download commands and lifecycle
+│       ├── preferences.go   # persistent user preferences
+│       ├── system.go        # operating-system commands
+│       ├── pickdir_*.go     # native folder picker
+│       ├── window_*.go      # window state per platform
+│       ├── rsrc_*.syso      # compiled Windows resources
+│       └── resources/
+│           └── icon.png     # source application icon
 ├── internal/
 │   ├── downloader/
 │   │   ├── fetcher.go       # HTTP client (redirects, UA, timeout)
 │   │   ├── html.go          # goquery-based HTML parsing & rewriting
 │   │   ├── path.go          # URL → on-disk path mapping
 │   │   └── downloader.go    # BFS orchestrator + event callbacks
-│   └── locale/
-│       └── locale.go        # system UI language detection
-├── web/
-│   ├── index.html           # UI (HTML + CSS + JS, single file)
-│   └── i18n.json            # 30+ language translations
-├── assets/
-│   └── icon.png             # app icon
-├── build.bat                # builds build\webdownloader.exe
-├── run.bat                  # builds (if needed) and launches
+│   ├── locale/
+│   │   └── locale.go        # system UI language detection
+│   └── webui/
+│       ├── assets.go        # embedded frontend access
+│       └── web/
+│           ├── index.html   # UI (HTML + CSS + JS)
+│           └── i18n.json    # 30+ language translations
+├── docs/
+│   └── images/              # README and documentation images
+├── tools/
+│   ├── examples/            # standalone usage examples
+│   └── i18n/                # translation maintenance scripts
+├── build.bat                # builds webdownloader.exe
 └── go.mod
 ```
 
@@ -83,8 +98,8 @@ webdownloader.exe [--debug]
 
 ## How it works
 
-1. The HTML page is embedded in the binary via `//go:embed web/*` and
-   served to webview through `SetHtml`.
+1. The frontend is embedded by `internal/webui` and extracted to a temporary
+   file URL so WebView2 can use `localStorage`.
 2. The Go side exposes a small RPC API to JS (`api_download`,
    `api_pickFolder`, `api_openFolder`, `api_getLocale`,
    `api_defaultOutputPath`, `api_i18n`).

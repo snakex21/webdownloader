@@ -105,26 +105,26 @@ func ExtractCSSReferences(source, _ string) []CSSReference {
 				if k < len(source) {
 					k++
 				}
-		} else {
-			// Unquoted form. Strip an optional url(…) wrapper so the
-			// caller gets the URL itself, not "url(…)" — the @import
-			// keyword is allowed to use either form.
-			if hasPrefixFold(source[j:], "url(") {
-				j += 4
-				for j < len(source) && isCSSWhitespace(source[j]) {
-					j++
+			} else {
+				// Unquoted form. Strip an optional url(…) wrapper so the
+				// caller gets the URL itself, not "url(…)" — the @import
+				// keyword is allowed to use either form.
+				if hasPrefixFold(source[j:], "url(") {
+					j += 4
+					for j < len(source) && isCSSWhitespace(source[j]) {
+						j++
+					}
 				}
+				k = j
+				for k < len(source) && source[k] != ';' && !isCSSWhitespace(source[k]) {
+					k++
+				}
+				// Drop a trailing ')' that came from url(...).
+				if k > j && source[k-1] == ')' {
+					k--
+				}
+				ref = source[j:k]
 			}
-			k = j
-			for k < len(source) && source[k] != ';' && !isCSSWhitespace(source[k]) {
-				k++
-			}
-			// Drop a trailing ')' that came from url(...).
-			if k > j && source[k-1] == ')' {
-				k--
-			}
-			ref = source[j:k]
-		}
 			for k < len(source) && (source[k] == ';' || isCSSWhitespace(source[k])) {
 				k++
 			}

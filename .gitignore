@@ -1,5 +1,15 @@
-output/
-dist/
-*.log
+# Compiled output
 *.exe
-build/
+/build/
+/dist/
+
+# Runtime data
+/output/
+/prefs.json
+*.log
+
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
