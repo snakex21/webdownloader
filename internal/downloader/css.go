@@ -2,7 +2,6 @@ package downloader
 
 import (
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -105,26 +104,26 @@ func ExtractCSSReferences(source, _ string) []CSSReference {
 				if k < len(source) {
 					k++
 				}
-		} else {
-			// Unquoted form. Strip an optional url(…) wrapper so the
-			// caller gets the URL itself, not "url(…)" — the @import
-			// keyword is allowed to use either form.
-			if hasPrefixFold(source[j:], "url(") {
-				j += 4
-				for j < len(source) && isCSSWhitespace(source[j]) {
-					j++
+			} else {
+				// Unquoted form. Strip an optional url(…) wrapper so the
+				// caller gets the URL itself, not "url(…)" — the @import
+				// keyword is allowed to use either form.
+				if hasPrefixFold(source[j:], "url(") {
+					j += 4
+					for j < len(source) && isCSSWhitespace(source[j]) {
+						j++
+					}
 				}
+				k = j
+				for k < len(source) && source[k] != ';' && !isCSSWhitespace(source[k]) {
+					k++
+				}
+				// Drop a trailing ')' that came from url(...).
+				if k > j && source[k-1] == ')' {
+					k--
+				}
+				ref = source[j:k]
 			}
-			k = j
-			for k < len(source) && source[k] != ';' && !isCSSWhitespace(source[k]) {
-				k++
-			}
-			// Drop a trailing ')' that came from url(...).
-			if k > j && source[k-1] == ')' {
-				k--
-			}
-			ref = source[j:k]
-		}
 			for k < len(source) && (source[k] == ';' || isCSSWhitespace(source[k])) {
 				k++
 			}
@@ -197,8 +196,10 @@ func rewriteCSSFile(
 		}
 		downloadedAssets[assetURL] = struct{}{}
 		totalBytes.Add(int64(len(dl.body)))
-		events.OnAsset(assetURL, "asset")
-		added++
+		if !dl.reused {
+			events.OnAsset(assetURL, "asset")
+			added++
+		}
 
 		// Compute the on-disk relative path from the CSS file to the
 		// downloaded asset.
@@ -220,7 +221,7 @@ func rewriteCSSFile(
 
 	// Apply rewrites right-to-left so earlier offsets stay valid.
 	newBody := applyRewrites(body, rewrites)
-	if err := os.WriteFile(cssPath, []byte(newBody), 0o644); err != nil {
+	if err := writeOutputFile(opts.OutputDir, cssPath, []byte(newBody)); err != nil {
 		return added, err
 	}
 	return added, nil

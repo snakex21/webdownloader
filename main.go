@@ -144,8 +144,11 @@ func (a *api) download(requestJSON string) downloadResult {
 		return downloadResult{Error: "empty url"}
 	}
 	parsed, perr := url.Parse(req.URL)
-	if perr != nil || parsed.Scheme == "" || parsed.Host == "" {
+	if perr != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
 		return downloadResult{Error: "invalid url"}
+	}
+	if _, err := downloader.FilePathFor(".", req.URL); err != nil {
+		return downloadResult{Error: fmt.Sprintf("invalid url: %v", err)}
 	}
 	if req.Depth < 1 {
 		req.Depth = 1

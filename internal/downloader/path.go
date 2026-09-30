@@ -1,7 +1,9 @@
 package downloader
 
 import (
+	"fmt"
 	"net/url"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -22,6 +24,9 @@ func FilePathFor(baseDir, rawURL string) (string, error) {
 		return "", err
 	}
 
+	if err := validateOutputPath(parsed.Path); err != nil {
+		return "", err
+	}
 	filePath := strings.TrimPrefix(parsed.Path, "/")
 	if filePath == "" || strings.HasSuffix(filePath, "/") {
 		filePath = filePath + "index.html"
@@ -50,6 +55,9 @@ func FilePathFor(baseDir, rawURL string) (string, error) {
 func AssetPathFor(baseDir, assetURL string) (string, error) {
 	parsed, err := url.Parse(assetURL)
 	if err != nil {
+		return "", err
+	}
+	if err := validateOutputPath(parsed.Path); err != nil {
 		return "", err
 	}
 	p := strings.TrimPrefix(parsed.Path, "/")
@@ -109,4 +117,32 @@ var unsafeChars = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 
 func safeFilename(s string) string {
 	return unsafeChars.ReplaceAllString(s, "_")
+}
+
+// validateOutputPath checks decoded URL paths before filepath.Join can clean
+// away traversal. Apply Windows filename rules on every OS because mirrors
+// are commonly downloaded on Windows or copied there afterward.
+func validateOutputPath(p string) error {
+	for _, part := range strings.Split(p, "/") {
+		if part == "" {
+			continue
+		}
+		if part == "." || part == ".." || strings.TrimRight(part, " .") != part || strings.ContainsAny(part, `\:<>"|?*`) {
+			return fmt.Errorf("unsafe output path component %q", part)
+		}
+		for _, r := range part {
+			if r < 32 {
+				return fmt.Errorf("unsafe output path component %q", part)
+			}
+		}
+		name := strings.ToUpper(strings.SplitN(part, ".", 2)[0])
+		if name == "CON" || name == "PRN" || name == "AUX" || name == "NUL" || name == "CONIN$" || name == "CONOUT$" || (len(name) == 4 && (strings.HasPrefix(name, "COM") || strings.HasPrefix(name, "LPT")) && name[3] >= '1' && name[3] <= '9') {
+			return fmt.Errorf("reserved output filename %q", part)
+		}
+	}
+	// Reject extra leading separators rather than allowing OS-specific joins.
+	if strings.HasPrefix(p, "//") || path.IsAbs(strings.TrimPrefix(p, "/")) {
+		return fmt.Errorf("unsafe output path %q", p)
+	}
+	return nil
 }

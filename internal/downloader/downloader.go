@@ -170,7 +170,13 @@ func Download(opts Options, events Events) (Summary, error) {
 
 	parsed, err := url.Parse(opts.URL)
 	if err != nil {
-		return Summary{}, fmt.Errorf("invalid url: %w", err)
+		return Summary{}, fmt.Errorf("%w: %v", ErrInvalidURL, err)
+	}
+	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
+		return Summary{}, fmt.Errorf("%w: expected an absolute HTTP(S) URL", ErrInvalidURL)
+	}
+	if _, err := FilePathFor(opts.OutputDir, opts.URL); err != nil {
+		return Summary{}, fmt.Errorf("%w: %v", ErrInvalidURL, err)
 	}
 	domain := parsed.Hostname()
 
@@ -179,7 +185,7 @@ func Download(opts Options, events Events) (Summary, error) {
 	}
 
 	httpFetcher := NewFetcherWithContext(opts.Context, opts.Retries)
-	httpFetcher.SetCookie(opts.Cookie)
+	httpFetcher.SetCookie(opts.Cookie, opts.URL)
 	defer httpFetcher.Cancel()
 
 	var fetcher pageFetcher = httpFetcher
@@ -196,8 +202,9 @@ func Download(opts Options, events Events) (Summary, error) {
 	// Open the error log (one line per failure). Best-effort: a failure
 	// to open the log is not fatal.
 	var errLog *os.File
-	if path, err := filepath.Abs(filepath.Join(opts.OutputDir, "download-errors.log")); err == nil {
-		if f, ferr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); ferr == nil {
+	if root, err := os.OpenRoot(opts.OutputDir); err == nil {
+		defer root.Close()
+		if f, ferr := root.OpenFile("download-errors.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); ferr == nil {
 			errLog = f
 			defer f.Close()
 		}
@@ -315,7 +322,7 @@ loop:
 					continue
 				}
 				attachmentsSeen[attURL] = struct{}{}
-				if dl, ok := downloadAssetFileWithLimit(httpFetcher, opts.OutputDir, attURL, opts.MaxFileBytes, downloadedAssets); ok {
+				if dl, ok := downloadAssetFileWithLimit(httpFetcher, opts.OutputDir, attURL, opts.MaxFileBytes, downloadedAssets); ok && !dl.reused {
 					attachmentCount++
 					totalBytes.Add(int64(len(dl.body)))
 				}
@@ -384,7 +391,7 @@ func writeReport(path string, opts Options, summary Summary, errs []map[string]s
 		"errors":      errs,
 	}
 	if data, err := json.MarshalIndent(report, "", "  "); err == nil {
-		_ = os.WriteFile(path, data, 0o644)
+		_ = writeOutputFile(opts.OutputDir, path, data)
 	}
 }
 
@@ -462,9 +469,18 @@ func downloadPage(
 	if err := opts.Pause.Wait(opts.Context); err != nil {
 		return 0, nil, nil, 0, err
 	}
-	resp, fetchErr := fetcher.FetchPage(pageURL)
+	var resp *FetchResult
+	var fetchErr error
+	if f, ok := fetcher.(*Fetcher); ok {
+		resp, fetchErr = f.FetchURLWithLimit(pageURL, opts.MaxFileBytes)
+	} else {
+		resp, fetchErr = fetcher.FetchPage(pageURL)
+	}
 	if fetchErr != nil {
 		return 0, nil, nil, 0, fmt.Errorf("fetch: %w", fetchErr)
+	}
+	if opts.MaxFileBytes > 0 && int64(len(resp.Body)) > opts.MaxFileBytes {
+		return 0, nil, nil, 0, ErrFileTooLarge
 	}
 	if !resp.OK {
 		return 0, nil, nil, 0, fmt.Errorf("http %d", resp.Status)
@@ -489,9 +505,6 @@ func downloadPage(
 	pagePath, fpErr := FilePathFor(opts.OutputDir, pageURL)
 	if fpErr != nil {
 		return 0, nil, nil, 0, fmt.Errorf("page path: %w", fpErr)
-	}
-	if err := os.MkdirAll(filepath.Dir(pagePath), 0o755); err != nil {
-		return 0, nil, nil, 0, fmt.Errorf("mkdir: %w", err)
 	}
 
 	// Download assets and rewrite references. CSS files are processed
@@ -522,7 +535,7 @@ func downloadPage(
 		// If this is a CSS file, parse it for nested url() / @import
 		// references. The file is rewritten on disk so those references
 		// resolve to local assets.
-		if isCSS(dl.path, dl.contentType) {
+		if !dl.reused && isCSS(dl.path, dl.contentType) {
 			if added, cerr := rewriteCSSFile(httpFetcher, dl.path, string(dl.body), assetURL, opts, domain, downloadedAssets, totalBytes, events); cerr == nil {
 				pageAssets += added
 			}
@@ -534,8 +547,10 @@ func downloadPage(
 		}
 		rel = filepath.ToSlash(rel)
 		RewriteAssetURL(doc, ref.Tag, ref.Attr, ref.URL, rel)
-		pageAssets++
-		events.OnAsset(assetURL, "asset")
+		if !dl.reused {
+			pageAssets++
+			events.OnAsset(assetURL, "asset")
+		}
 	}
 
 	// Rewrite same-scope navigation to the local mirror and classify what the
@@ -550,7 +565,7 @@ func downloadPage(
 	if err != nil {
 		return pageAssets, links, attachments, pageBytes, fmt.Errorf("render html: %w", err)
 	}
-	if err := os.WriteFile(pagePath, []byte(htmlOut), 0o644); err != nil {
+	if err := writeOutputFile(opts.OutputDir, pagePath, []byte(htmlOut)); err != nil {
 		return pageAssets, links, attachments, pageBytes, fmt.Errorf("write html: %w", err)
 	}
 	return pageAssets, links, attachments, pageBytes, nil
@@ -589,6 +604,7 @@ type downloadResult struct {
 	path        string
 	body        []byte
 	contentType string
+	reused      bool // already counted in this run; still rewrite references
 }
 
 // downloadAssetFileWithLimit downloads an asset with an optional per-file
@@ -597,14 +613,15 @@ type downloadResult struct {
 func downloadAssetFileWithLimit(fetcher *Fetcher, baseDir, assetURL string, maxBytes int64, seen map[string]struct{}) (downloadResult, bool) {
 	if seen != nil {
 		if _, dup := seen[assetURL]; dup {
-			return downloadResult{}, false
+			fullPath, err := AssetPathFor(baseDir, assetURL)
+			return downloadResult{path: fullPath, reused: true}, err == nil
 		}
 	}
 	fullPath, pathErr := AssetPathFor(baseDir, assetURL)
 	if pathErr != nil {
 		return downloadResult{}, false
 	}
-	if info, err := os.Stat(fullPath); err == nil && info.Size() > 0 {
+	if info, err := statOutputFile(baseDir, fullPath); err == nil && info.Size() > 0 {
 		if seen != nil {
 			seen[assetURL] = struct{}{}
 		}
@@ -614,10 +631,7 @@ func downloadAssetFileWithLimit(fetcher *Fetcher, baseDir, assetURL string, maxB
 	if err != nil || !resp.OK {
 		return downloadResult{}, false
 	}
-	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
-		return downloadResult{}, false
-	}
-	if err := os.WriteFile(fullPath, resp.Body, 0o644); err != nil {
+	if err := writeOutputFile(baseDir, fullPath, resp.Body); err != nil {
 		return downloadResult{}, false
 	}
 	if seen != nil {

@@ -34,11 +34,12 @@ var ErrFileTooLarge = errors.New("file exceeds configured size limit")
 // and enforces a per-request timeout. All in-flight requests can be cancelled
 // at once via Cancel().
 type Fetcher struct {
-	client  *http.Client
-	ctx     context.Context
-	cancel  context.CancelFunc
-	retries int
-	cookie  string
+	client       *http.Client
+	ctx          context.Context
+	cancel       context.CancelFunc
+	retries      int
+	cookie       string
+	cookieOrigin *url.URL
 }
 
 // NewFetcher creates a new Fetcher. The context is the one used for every
@@ -65,6 +66,11 @@ func NewFetcherWithContext(parent context.Context, retries int) *Fetcher {
 				if len(via) >= maxRedirects {
 					return fmt.Errorf("stopped after %d redirects", maxRedirects)
 				}
+				// Go otherwise forwards sensitive headers to same-host redirects,
+				// including different ports and HTTPS-to-HTTP downgrades.
+				if len(via) > 0 && !sameOrigin(req.URL, via[0].URL) {
+					req.Header.Del("Cookie")
+				}
 				return nil
 			},
 		},
@@ -74,8 +80,16 @@ func NewFetcherWithContext(parent context.Context, retries int) *Fetcher {
 	}
 }
 
-func (f *Fetcher) SetCookie(cookie string) {
+// SetCookie binds a manually supplied cookie to the starting origin only.
+// Unlike a cookie jar, a pasted Cookie header has no trustworthy Domain or
+// Secure attributes, so external assets must never inherit it.
+func (f *Fetcher) SetCookie(cookie, originURL string) {
 	f.cookie = strings.TrimSpace(cookie)
+	f.cookieOrigin, _ = url.Parse(originURL)
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	return a != nil && b != nil && strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host)
 }
 
 // Cancel aborts every in-flight request and prevents new ones from being
@@ -157,7 +171,7 @@ func (f *Fetcher) fetchOnce(rawURL string, maxBytes int64) (*FetchResult, error)
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9,pl;q=0.8")
-	if f.cookie != "" {
+	if f.cookie != "" && sameOrigin(parsed, f.cookieOrigin) {
 		req.Header.Set("Cookie", f.cookie)
 	}
 
