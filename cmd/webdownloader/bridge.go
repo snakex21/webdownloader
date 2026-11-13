@@ -29,6 +29,9 @@ func bindAPI(window webview.WebView, api *api) error {
 		{"api_loadPrefs", api.loadPrefs},
 		{"api_deleteFolder", api.deleteFolder},
 		{"api_deleteHistoryItem", api.deleteHistoryItem},
+		{"api_folderInfo", api.folderInfo},
+		{"api_startPreview", api.startPreview},
+		{"api_engines", api.engines},
 	}
 
 	for _, binding := range bindings {

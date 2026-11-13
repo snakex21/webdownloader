@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/asrock/webdownloader/internal/downloader"
 	"github.com/asrock/webdownloader/internal/locale"
 )
 
@@ -91,16 +93,58 @@ func (a *api) revealPath(path string) error {
 	return command.Start()
 }
 
+// trashFolder is replaced in tests so they do not fill the Recycle Bin.
+var trashFolder = moveToTrash
+
+// deleteFolder moves a download folder recorded in history to the Recycle
+// Bin. A folder that is being downloaded right now is refused.
 func (a *api) deleteFolder(path string) string {
 	target, err := validateDeleteTarget(path, readPrefsSnapshot())
 	if err != nil {
 		return fmt.Sprintf("error: %v", err)
 	}
-
-	if err := os.RemoveAll(target); err != nil {
+	if a.isActiveOutput(target) {
+		return "error: busy"
+	}
+	if _, err := os.Lstat(target); os.IsNotExist(err) {
+		return "ok"
+	}
+	if err := trashFolder(target); err != nil {
 		return fmt.Sprintf("error: %v", err)
 	}
 	return "ok"
+}
+
+// folderInfo is shown in the delete confirmation.
+type folderInfo struct {
+	Exists bool  `json:"exists"`
+	Bytes  int64 `json:"bytes"`
+	Files  int   `json:"files"`
+	Busy   bool  `json:"busy"`
+}
+
+// folderInfo sizes a download folder recorded in history.
+func (a *api) folderInfo(path string) folderInfo {
+	target, err := validateDeleteTarget(path, readPrefsSnapshot())
+	if err != nil {
+		return folderInfo{}
+	}
+	info := folderInfo{Busy: a.isActiveOutput(target)}
+	if st, err := os.Stat(target); err != nil || !st.IsDir() {
+		return info
+	}
+	info.Exists = true
+	_ = filepath.WalkDir(target, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if fi, err := d.Info(); err == nil {
+			info.Files++
+			info.Bytes += fi.Size()
+		}
+		return nil
+	})
+	return info
 }
 
 func validateDeleteTarget(path string, prefs map[string]any) (string, error) {
@@ -200,4 +244,9 @@ func (a *api) defaultOutputPath(rawURL string) string {
 		return filepath.Join(baseDir, strings.TrimPrefix(parsed.Hostname(), "www."))
 	}
 	return baseDir
+}
+
+// engines reports which browser engines the accurate mode can use here.
+func (a *api) engines() map[string]bool {
+	return downloader.AvailableEngines()
 }
