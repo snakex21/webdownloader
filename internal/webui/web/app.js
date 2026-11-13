@@ -149,6 +149,7 @@ function button(cls, icon, label, onClick) {
 function confirmDialog({ title, body, confirmLabel, danger = true, confirmDisabled = false }) {
     return new Promise(resolve => {
         const modal = $('modal');
+        if (!modal.hidden) { resolve(false); return; } // one dialog at a time
         const cancelBtn = $('modalCancel');
         const confirmBtn = $('modalConfirm');
         const previous = document.activeElement;
@@ -517,6 +518,7 @@ function resetStatusCard(url, baseline) {
     $('statusUrl').title = url;
     $('metrics').hidden = false;
     $('currentRow').hidden = false;
+    $('statsRow').hidden = false;
     $('outputRow').hidden = false;
     $('outputPath').textContent = '–';
     $('outputLabel').textContent = tt('output.saving');
@@ -647,7 +649,7 @@ function updateMetrics() {
     const first = run.samples[0];
     if (!run.paused && run.samples.length > 1 && now > first.t) {
         const bps = (run.bytes - first.b) / ((now - first.t) / 1000);
-        $('metricSpeed').textContent = formatBytes(bps) + '/s';
+        $('metricSpeed').textContent = bps > 0 ? formatBytes(bps) + '/s' : '–';
     } else if (run.paused) {
         $('metricSpeed').textContent = '–';
     }
@@ -817,10 +819,12 @@ function renderFinished(d) {
         $('editUrlBtn').hidden = false;
         for (const id of ['previewBtn', 'openPageBtn', 'openFolderBtn', 'openReportBtn']) $(id).hidden = true;
         $('outputRow').hidden = true;
+        $('statsRow').hidden = true;
         notes.hidden = true;
         return;
     }
     $('errorBlock').hidden = true;
+    $('statsRow').hidden = false;
     $('retryBtn').hidden = true;
     $('editUrlBtn').hidden = true;
     for (const id of ['previewBtn', 'openPageBtn', 'openFolderBtn', 'openReportBtn']) $(id).hidden = false;
