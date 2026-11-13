@@ -18,7 +18,7 @@ func TestFitPath(t *testing.T) {
 	script := `
 const src = require('fs').readFileSync(process.argv[2], 'utf8');
 eval(src.match(/function fitPath[\s\S]*?\r?\n}\r?\n/)[0]);
-const p = ['C:', 'Users', 'ASRock', 'Downloads', 'WebDownloader'].join(String.fromCharCode(92));
+const p = ['C:', 'Users', 'User', 'Downloads', 'WebDownloader'].join(String.fromCharCode(92));
 const out = [500, 200, 120, 100].map(w => fitPath(p, t => t.length * 8 <= w));
 console.log(out.join('|'));`
 	dir := t.TempDir()
@@ -36,7 +36,7 @@ console.log(out.join('|'));`
 		t.Fatalf("node: %v\n%s", err, out)
 	}
 	got := strings.TrimSpace(string(out))
-	want := `C:\Users\ASRock\Downloads\WebDownloader|…\Downloads\WebDownloader|…\WebDownloader|…\WebDow…der`
+	want := `C:\Users\User\Downloads\WebDownloader|…\Downloads\WebDownloader|…\WebDownloader|…\WebDow…der`
 	if got != want {
 		t.Errorf("fitPath:\n got %s\nwant %s", got, want)
 	}
