@@ -28,6 +28,8 @@ type FetchResult struct {
 	Body        []byte // nil for FetchToFile
 	Size        int64  // bytes read (FetchURL*) or written (FetchToFile)
 	ContentType string
+	// Rendered is set by the browser fetcher: what the page loaded.
+	Rendered *renderResult
 }
 
 // ErrFileTooLarge is returned before/while reading a response whose size

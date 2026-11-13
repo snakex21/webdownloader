@@ -4,7 +4,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 )
 
 // CSSReference is a single url() or @import reference found inside a CSS
@@ -113,6 +112,27 @@ func ExtractCSSReferences(source, _ string) []CSSReference {
 					for j < len(source) && isCSSWhitespace(source[j]) {
 						j++
 					}
+					// @import url("x.css") - quoted inside url().
+					if j < len(source) && (source[j] == '"' || source[j] == '\'') {
+						quote := source[j]
+						end := strings.IndexByte(source[j+1:], quote)
+						if end >= 0 {
+							ref = source[j+1 : j+1+end]
+							k = j + 1 + end + 1
+							for k < len(source) && isCSSWhitespace(source[k]) {
+								k++
+							}
+							if k < len(source) && source[k] == ')' {
+								k++
+							}
+							for k < len(source) && (source[k] == ';' || isCSSWhitespace(source[k])) {
+								k++
+							}
+							refs = append(refs, CSSReference{URL: strings.TrimSpace(ref), Offset: start, Length: k - start})
+							i = k
+							continue
+						}
+					}
 				}
 				k = j
 				for k < len(source) && source[k] != ';' && !isCSSWhitespace(source[k]) {
@@ -148,84 +168,55 @@ func hasPrefixFold(s, prefix string) bool {
 	return strings.EqualFold(s[:len(prefix)], prefix)
 }
 
-// rewriteCSSFile downloads every url(…) / @import reference inside a CSS
-// file, rewrites the bytes so the references point to the local files,
-// and persists the updated file to disk. Returns the number of additional
-// assets downloaded.
-func rewriteCSSFile(
-	fetcher *Fetcher,
-	cssPath string,
-	body string,
-	cssURL string,
-	opts Options,
-	domain string,
-	downloadedAssets map[string]struct{},
-	totalBytes *atomic.Int64,
-	events Events,
-) (int, error) {
+// rewriteCSS downloads every url(…) / @import reference inside a CSS file,
+// rewrites the bytes so the references point to the local files (keeping
+// cache-busting queries), and persists the updated file. Nested stylesheets
+// are handled recursively through fetchAsset. Returns the number of
+// references rewritten.
+func (c *crawler) rewriteCSS(cssPath, body, cssURL string) (int, error) {
 	refs := ExtractCSSReferences(body, cssURL)
 	if len(refs) == 0 {
 		return 0, nil
 	}
-
 	var rewrites []cssRewrite
-	added := 0
-
 	for _, ref := range refs {
 		if ref.URL == "" {
 			continue
 		}
 		// data: URIs and fragment-only URLs are kept as-is.
-		if strings.HasPrefix(strings.ToLower(ref.URL), "data:") {
+		if strings.HasPrefix(strings.ToLower(ref.URL), "data:") || strings.HasPrefix(ref.URL, "#") {
 			continue
 		}
-		if strings.HasPrefix(ref.URL, "#") {
-			continue
-		}
-		// Resolve to absolute URL.
 		assetURL, aErr := absoluteURL(cssURL, ref.URL)
 		if aErr != nil {
 			continue
 		}
-		if !shouldDownloadAsset(assetURL, domain, opts) {
+		localPath, ok := c.fetchAsset(assetURL, cssURL, false)
+		if !ok {
 			continue
 		}
-		dl, dlErr := downloadAssetFileWithLimit(fetcher, opts.OutputDir, assetURL, opts.MaxFileBytes, downloadedAssets)
-		if dlErr != nil {
-			reportAssetError(opts.Context, events, assetURL, dlErr)
+		rel, ok := localRef(filepath.Dir(cssPath), localPath, assetURL)
+		if !ok {
 			continue
 		}
-		downloadedAssets[assetURL] = struct{}{}
-		totalBytes.Add(dl.size)
-		if !dl.reused {
-			events.OnAsset(assetURL, "asset")
-			added++
+		with := "url(" + quoteCSSURL(rel) + ")"
+		if hasPrefixFold(body[ref.Offset:], "@import") {
+			with = "@import " + with + ";"
+			// Keep whatever followed the URL (media queries) intact.
+			if end := ref.Offset + ref.Length; end <= len(body) && !strings.HasSuffix(strings.TrimSpace(body[ref.Offset:end]), ";") {
+				with = strings.TrimSuffix(with, ";") + " "
+			}
 		}
-
-		// Compute the on-disk relative path from the CSS file to the
-		// downloaded asset.
-		rel, relErr := filepath.Rel(filepath.Dir(cssPath), dl.path)
-		if relErr != nil {
-			continue
-		}
-		rel = filepath.ToSlash(rel)
-		rewrites = append(rewrites, cssRewrite{
-			offset: ref.Offset,
-			length: ref.Length,
-			with:   "url(" + quoteCSSURL(rel) + ")",
-		})
+		rewrites = append(rewrites, cssRewrite{offset: ref.Offset, length: ref.Length, with: with})
 	}
-
 	if len(rewrites) == 0 {
 		return 0, nil
 	}
-
-	// Apply rewrites right-to-left so earlier offsets stay valid.
 	newBody := applyRewrites(body, rewrites)
-	if err := writeOutputFile(opts.OutputDir, cssPath, []byte(newBody)); err != nil {
-		return added, err
+	if err := writeOutputFile(c.opts.OutputDir, cssPath, []byte(newBody)); err != nil {
+		return len(rewrites), err
 	}
-	return added, nil
+	return len(rewrites), nil
 }
 
 // quoteCSSURL returns the CSS string literal form of a relative URL. If
