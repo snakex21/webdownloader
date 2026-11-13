@@ -915,8 +915,35 @@ function emptyHistory() {
 // matters more than the drive) and puts the full path in the tooltip.
 function showPathEnd() {
     const input = outputDirInput;
+    const display = $('outputDirDisplay');
     input.title = input.value;
-    if (document.activeElement !== input) requestAnimationFrame(() => { input.scrollLeft = input.scrollWidth; });
+    requestAnimationFrame(() => {
+        const cs = getComputedStyle(input);
+        const width = display.clientWidth || (input.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
+        const text = pathTail(input.value, width, cs.font);
+        display.textContent = text;
+        input.classList.toggle('path-short', text !== input.value);
+        display.hidden = text === input.value;
+    });
+}
+
+let measureCtx = null;
+// pathTail returns path, or "…" + the longest ending that fits in width
+// pixels, cut at a folder separator when possible.
+function pathTail(path, width, font) {
+    if (!path || width <= 0) return path || '';
+    measureCtx = measureCtx || document.createElement('canvas').getContext('2d');
+    measureCtx.font = font;
+    const fits = t => measureCtx.measureText(t).width <= width;
+    if (fits(path)) return path;
+    for (let i = 1; i < path.length; i++) {
+        if (path[i] !== '\\' && path[i] !== '/') continue;
+        if (fits('…' + path.slice(i))) return '…' + path.slice(i);
+    }
+    for (let i = 1; i < path.length; i++) {
+        if (fits('…' + path.slice(i))) return '…' + path.slice(i);
+    }
+    return '…';
 }
 
 function lastPct() { return run && run.pct !== undefined ? run.pct : null; }
@@ -1007,7 +1034,8 @@ $('rememberOptions').addEventListener('change', e => {
     else window.api_savePrefs(JSON.stringify({ rememberOptions: false })).catch(() => {});
 });
 outputDirInput.addEventListener('blur', showPathEnd);
-outputDirInput.addEventListener('input', () => { outputDirInput.title = outputDirInput.value; });
+outputDirInput.addEventListener('input', showPathEnd);
+outputDirInput.addEventListener('change', showPathEnd);
 window.addEventListener('resize', showPathEnd);
 
 $('language').addEventListener('change', e => {

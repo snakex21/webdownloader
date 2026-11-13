@@ -107,6 +107,16 @@ legend.field-label { padding: 0; }
 .input-wrapper input:focus, .input-wrapper select:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-glow); outline: none; }
 .input-wrapper input::placeholder { color: #6f6f86; }
 .input-wrapper input.with-button { padding-right: 52px; }
+/* Long folder paths: while the field is not being edited, an overlay shows
+   "…\Downloads\WebDownloader" (the end matters most); the real value stays
+   in the input, the full path in its tooltip. */
+.path-display {
+    position: absolute; left: 40px; right: 54px; top: 50%; transform: translateY(-50%);
+    white-space: nowrap; overflow: hidden; pointer-events: none;
+    color: var(--text-primary); font-size: 14px;
+}
+.input-wrapper input.path-short:not(:focus) { color: transparent; }
+.input-wrapper input:focus ~ .path-display { display: none; }
 .input-wrapper input[aria-invalid="true"] { border-color: var(--error); }
 .input-wrapper input:disabled, .input-wrapper select:disabled { opacity: .55; cursor: not-allowed; }
 
