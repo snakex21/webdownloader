@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebDownloader</title>
+    <link rel="stylesheet" href="vendor/fontawesome/css/fontawesome.min.css">
+    <link rel="stylesheet" href="vendor/fontawesome/css/solid.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <i class="fas fa-globe"></i>
+            <h1>WebDownloader</h1>
+            <p>Pobierz stronę internetową wraz z podstronami i zasobami</p>
+            <div class="language-selector">
+                <div class="language-dropdown">
+                    <div class="language-selected" id="languageSelected">
+                        <span class="flag-icon" id="currentFlag" aria-hidden="true">PL</span>
+                        <span class="language-name">Polski</span>
+                        <i class="fas fa-chevron-down" style="line-height: 1;"></i>
+                    </div>
+                    <div class="language-options" id="languageOptions">
+                        <div class="language-option" data-lang="pl" data-flag="pl"><span class="flag-icon" aria-hidden="true">PL</span>Polski</div>
+                        <div class="language-option" data-lang="en" data-flag="gb"><span class="flag-icon" aria-hidden="true">GB</span>English</div>
+                        <div class="language-option" data-lang="de" data-flag="de"><span class="flag-icon" aria-hidden="true">DE</span>Deutsch</div>
+                        <div class="language-option" data-lang="fr" data-flag="fr"><span class="flag-icon" aria-hidden="true">FR</span>Français</div>
+                        <div class="language-option" data-lang="es" data-flag="es"><span class="flag-icon" aria-hidden="true">ES</span>Español</div>
+                        <div class="language-option" data-lang="it" data-flag="it"><span class="flag-icon" aria-hidden="true">IT</span>Italiano</div>
+                        <div class="language-option" data-lang="pt" data-flag="pt"><span class="flag-icon" aria-hidden="true">PT</span>Português</div>
+                        <div class="language-option" data-lang="ru" data-flag="ru"><span class="flag-icon" aria-hidden="true">RU</span>Русский</div>
+                        <div class="language-option" data-lang="uk" data-flag="ua"><span class="flag-icon" aria-hidden="true">UA</span>Українська</div>
+                        <div class="language-option" data-lang="cs" data-flag="cz"><span class="flag-icon" aria-hidden="true">CZ</span>Čeština</div>
+                        <div class="language-option" data-lang="sk" data-flag="sk"><span class="flag-icon" aria-hidden="true">SK</span>Slovenčina</div>
+                        <div class="language-option" data-lang="hu" data-flag="hu"><span class="flag-icon" aria-hidden="true">HU</span>Magyar</div>
+                        <div class="language-option" data-lang="ro" data-flag="ro"><span class="flag-icon" aria-hidden="true">RO</span>Română</div>
+                        <div class="language-option" data-lang="nl" data-flag="nl"><span class="flag-icon" aria-hidden="true">NL</span>Nederlands</div>
+                        <div class="language-option" data-lang="sv" data-flag="se"><span class="flag-icon" aria-hidden="true">SE</span>Svenska</div>
+                        <div class="language-option" data-lang="da" data-flag="dk"><span class="flag-icon" aria-hidden="true">DK</span>Dansk</div>
+                        <div class="language-option" data-lang="fi" data-flag="fi"><span class="flag-icon" aria-hidden="true">FI</span>Suomi</div>
+                        <div class="language-option" data-lang="el" data-flag="gr"><span class="flag-icon" aria-hidden="true">GR</span>Ελληνικά</div>
+                        <div class="language-option" data-lang="tr" data-flag="tr"><span class="flag-icon" aria-hidden="true">TR</span>Türkçe</div>
+                        <div class="language-option" data-lang="ar" data-flag="sa"><span class="flag-icon" aria-hidden="true">SA</span>العربية</div>
+                        <div class="language-option" data-lang="he" data-flag="il"><span class="flag-icon" aria-hidden="true">IL</span>עברית</div>
+                        <div class="language-option" data-lang="ja" data-flag="jp"><span class="flag-icon" aria-hidden="true">JP</span>日本語</div>
+                        <div class="language-option" data-lang="ko" data-flag="kr"><span class="flag-icon" aria-hidden="true">KR</span>한국어</div>
+                        <div class="language-option" data-lang="zh" data-flag="cn"><span class="flag-icon" aria-hidden="true">CN</span>中文</div>
+                        <div class="language-option" data-lang="hi" data-flag="in"><span class="flag-icon" aria-hidden="true">IN</span>हिन्दी</div>
+                        <div class="language-option" data-lang="id" data-flag="id"><span class="flag-icon" aria-hidden="true">ID</span>Bahasa Indonesia</div>
+                        <div class="language-option" data-lang="vi" data-flag="vn"><span class="flag-icon" aria-hidden="true">VN</span>Tiếng Việt</div>
+                        <div class="language-option" data-lang="th" data-flag="th"><span class="flag-icon" aria-hidden="true">TH</span>ไทย</div>
+                        <div class="language-option" data-lang="no" data-flag="no"><span class="flag-icon" aria-hidden="true">NO</span>Norsk</div>
+                        <div class="language-option" data-lang="bg" data-flag="bg"><span class="flag-icon" aria-hidden="true">BG</span>Български</div>
+                        <div class="language-option" data-lang="hr" data-flag="hr"><span class="flag-icon" aria-hidden="true">HR</span>Hrvatski</div>
+                        <div class="language-option" data-lang="ca" data-flag="es"><span class="flag-icon" aria-hidden="true">ES</span>Català</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <form id="downloadForm">
+            <div class="form-group">
+                <label>Adres strony</label>
+                <div class="input-wrapper">
+                    <i class="fas fa-link"></i>
+                    <input type="url" id="url" placeholder="https://skokimanager.pl" required>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="form-group">
+                    <label>Głębokość</label>
+                    <div class="input-wrapper">
+                        <i class="fas fa-layer-group"></i>
+                        <select id="depth">
+                            <option value="1">1 - Tylko główna strona</option>
+                            <option value="2" selected>2 - Główna + podstrony</option>
+                            <option value="3">3 - Główna + 2 poziomy</option>
+                            <option value="4">4 - Główna + 3 poziomy</option>
+                            <option value="5">5 - Wszystkie poziomy</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="checkbox-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="downloadAll" checked>
+                    <span class="checkbox-custom"></span>
+                    <span class="checkbox-text">
+                        <i class="fas fa-file-archive"></i>
+                        Pobierz wszystkie pliki (PDF, ZIP, DOC, itp.)
+                    </span>
+                </label>
+            </div>
+
+            <details class="advanced" id="advanced">
+                <summary class="advanced-summary">
+                    <i class="fas fa-sliders-h"></i>
+                    <span id="advancedLabel">Zaawansowane opcje</span>
+                    <i class="fas fa-chevron-down chev"></i>
+                </summary>
+                <div class="advanced-body">
+                    <div>
+                        <div class="small-label" id="modeLabel">Tryb pobierania</div>
+                        <div class="mode-row">
+                            <label class="mode-pill active" data-mode="http">
+                                <input type="radio" name="mode" value="http" checked>
+                                <i class="fas fa-bolt"></i>
+                                <span data-i18n="modeFast">Szybki</span>
+                            </label>
+                            <label class="mode-pill" data-mode="browser">
+                                <input type="radio" name="mode" value="browser">
+                                <i class="fas fa-globe"></i>
+                                <span data-i18n="modeBrowser">Dokładny (Chromium)</span>
+                            </label>
+                        </div>
+                        <div class="hint" id="modeHint">
+                            Szybki tryb używa zwykłego HTTP. Tryb Dokładny renderuje
+                            stronę w przeglądarce (potrzebny jest Edge lub Chrome).
+                        </div>
+                    </div>
+
+                    <div class="checkbox-group" style="margin-bottom: 0;">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="includeSubdomains">
+                            <span class="checkbox-custom"></span>
+                            <span class="checkbox-text">
+                                <i class="fas fa-sitemap"></i>
+                                <span data-i18n="includeSubdomains">Pobieraj z subdomen</span>
+                            </span>
+                        </label>
+                    </div>
+
+                    <div class="checkbox-group" style="margin-bottom: 0;">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="includeExternal">
+                            <span class="checkbox-custom"></span>
+                            <span class="checkbox-text">
+                                <i class="fas fa-external-link-alt"></i>
+                                <span data-i18n="includeExternal">Pobieraj assety z CDN / zewnętrznych domen</span>
+                            </span>
+                        </label>
+                    </div>
+
+                    <div class="field-grid">
+                        <div class="form-group">
+                            <label id="maxPagesLabel">Maks. stron (0 = bez limitu)</label>
+                            <div class="input-wrapper">
+                                <i class="fas fa-file-alt"></i>
+                                <input type="number" id="maxPages" min="0" value="0" placeholder="0">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label id="maxTotalLabel">Maks. rozmiar łącznie (MB)</label>
+                            <div class="input-wrapper">
+                                <i class="fas fa-hdd"></i>
+                                <input type="number" id="maxTotalMB" min="0" value="0" placeholder="0">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="field-grid">
+                        <div class="form-group">
+                            <label id="maxFileLabel">Maks. rozmiar pliku (MB)</label>
+                            <div class="input-wrapper">
+                                <i class="fas fa-file"></i>
+                                <input type="number" id="maxFileMB" min="0" value="0" placeholder="0">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label id="cookieLabel">Cookie dla stron wymagających logowania</label>
+                        <div class="input-wrapper">
+                            <i class="fas fa-key"></i>
+                            <input type="text" id="cookieHeader" placeholder="session=...; token=...">
+                        </div>
+                        <div class="hint" id="cookieHint">Wklej wartość nagłówka Cookie z zalogowanej przeglądarki.</div>
+                    </div>
+                </div>
+            </details>
+
+            <div class="checkbox-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="rememberOptions">
+                    <span class="checkbox-custom"></span>
+                    <span class="checkbox-text">
+                        <i class="fas fa-save"></i>
+                        Zapamiętaj opcje
+                    </span>
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label id="labelOutput">Folder docelowy</label>
+                <div class="input-wrapper">
+                    <i class="fas fa-folder-open"></i>
+                    <input type="text" id="outputDir" placeholder="C:\output" style="padding-right: 56px;">
+                    <button type="button" id="pickFolderBtn" class="pick-btn" title="Wybierz folder">
+                        <i class="fas fa-ellipsis-h"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="button-row">
+                <button type="submit" class="btn" id="downloadBtn">
+                    <i class="fas fa-download"></i>
+                    <span id="downloadBtnLabel">Pobierz</span>
+                </button>
+                <button type="button" class="btn" id="queueBtn">
+                    <i class="fas fa-list"></i>
+                    <span id="queueBtnLabel">Do kolejki</span>
+                </button>
+                <button type="button" class="btn" id="pauseBtn" style="display: none;">
+                    <i class="fas fa-pause"></i>
+                    <span id="pauseBtnLabel">Pauza</span>
+                </button>
+                <button type="button" class="btn btn-cancel" id="cancelBtn" style="display: none;">
+                    <i class="fas fa-stop"></i>
+                    <span id="cancelBtnLabel">Anuluj</span>
+                </button>
+            </div>
+        </form>
+        
+        <div class="status" id="status">
+            <div class="status-card">
+                <div class="status-header">
+                    <div class="status-icon downloading" id="statusIcon">
+                        <i class="fas fa-spinner"></i>
+                    </div>
+                    <div>
+                        <div class="status-title" id="statusTitle">Pobieranie...</div>
+                        <div class="status-url" id="statusUrl"></div>
+                    </div>
+                </div>
+
+                <div class="progress-bar progress-wrap">
+                    <div class="progress-fill" id="progressFill"></div>
+                    <div class="progress-text" id="progressText"></div>
+                </div>
+
+                <div class="stats">
+                    <div class="stat">
+                        <div class="stat-value" id="pageCount">0</div>
+                        <div class="stat-label" data-i18n="statPages">Stron</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="assetCount">0</div>
+                        <div class="stat-label" data-i18n="statAssets">Assetów</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="attachmentCount">0</div>
+                        <div class="stat-label" data-i18n="statFiles">Pliki</div>
+                    </div>
+                    <div class="stat">
+                        <div class="stat-value" id="bytesStat">0 B</div>
+                        <div class="stat-label" data-i18n="statBytes">Rozmiar</div>
+                    </div>
+                </div>
+
+                <div class="output-path">
+                    <div class="output-path-main"><span data-i18n="savedTo">Zapisano do:</span> <span id="outputPath">-</span></div>
+                    <div class="mini-actions" id="currentActions" style="display: none;">
+                        <button type="button" class="mini-btn open-btn" id="openFolderBtn" style="display: none;">
+                            <i class="fas fa-folder-open"></i> <span data-i18n="openFolder">Folder</span>
+                        </button>
+                        <button type="button" class="mini-btn" id="openPageBtn"><i class="fas fa-external-link-alt"></i> <span id="openPageLabel">Otwórz stronę</span></button>
+                        <button type="button" class="mini-btn" id="revealPageBtn"><i class="fas fa-search"></i> <span id="revealPageLabel">Pokaż index.html</span></button>
+                        <button type="button" class="mini-btn" id="openReportBtn"><i class="fas fa-file-alt"></i> <span id="reportLabel">Raport</span></button>
+                    </div>
+                </div>
+
+                <div class="log" id="log"></div>
+            </div>
+        </div>
+
+        <div class="history-panel" id="historyPanel">
+            <div class="history-head">
+                <h2><i class="fas fa-history"></i> <span id="historyTitle">Ostatnio pobrane</span></h2>
+                <button type="button" class="mini-btn" id="clearHistoryBtn"><i class="fas fa-trash"></i> <span id="clearHistoryLabel">Wyczyść</span></button>
+            </div>
+            <div class="history-list" id="historyList">
+                <div class="history-empty" id="historyEmpty">Brak historii.</div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="app.js"></script>
+</body>
+</html>
+

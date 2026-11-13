@@ -3,11 +3,11 @@
 Desktop application for downloading websites with subpages, resources, and
 attachments — written in **Go** with a **webview** UI.
 
-The whole UI is a single HTML file embedded in the binary; the
-application logic (HTTP fetching, HTML rewriting, BFS crawl) runs natively
-in Go. No Node.js, no Electron, no separate web server.
+The HTML, CSS, JavaScript, icons, and translations are embedded in the binary;
+the application logic (HTTP fetching, HTML rewriting, BFS crawl) runs natively
+in Go. No Node.js or Electron is required.
 
-![WebDownloader](assets/screenshot-app.PNG)
+![WebDownloader](docs/images/screenshot-app.png)
 
 ## Features
 
@@ -17,11 +17,13 @@ in Go. No Node.js, no Electron, no separate web server.
 - Multi-language UI (30+ languages, auto-detected)
 - Live progress (pages, assets, attachments) and rolling log
 - Native folder picker + "Open output folder" button
+- Fully embedded frontend with no runtime CDN dependencies
+- Confirmed cleanup of downloaded folders from history
 - Single-file portable executable
 
 ## Requirements
 
-- **Go 1.22+** (tested on 1.26)
+- **Go 1.26.2+**
 - **CGO** + a C compiler (GCC / MinGW on Windows — comes with `tdm-gcc`
   or installed via MSYS2 / Chocolatey)
 - **Microsoft Edge WebView2** runtime (pre-installed on Windows 10/11 since
@@ -34,57 +36,83 @@ in Go. No Node.js, no Electron, no separate web server.
 git clone <repo>
 cd webdownloader
 go mod download
-run.bat
-```
-
-`run.bat` builds the binary into `build\webdownloader.exe` (if missing)
-and launches it. To rebuild from scratch:
-
-```bat
 build.bat
 ```
 
-The resulting `build\webdownloader.exe` is fully self-contained
-(HTML + translations embedded) and can be copied anywhere.
+The resulting `webdownloader.exe` is created in the project directory. It
+contains the application icon, HTML, and translations, so it can be copied
+and run as a standalone file.
+
+By default, preferences and logs are stored in
+`%LOCALAPPDATA%\WebDownloader`, while downloaded sites go to
+`%USERPROFILE%\Downloads\WebDownloader`. Run the application with
+`--portable` to keep preferences, logs, and the default output directory next
+to the executable.
+
+For development checks:
+
+```bat
+go test ./...
+go vet ./...
+```
 
 ## Layout
 
 ```
 .
-├── main.go                  # entry point + webview bindings
-├── pickdir_windows.go       # native folder picker (Windows, via PowerShell)
-├── pickdir_other.go         # stub for non-Windows
+├── cmd/
+│   └── webdownloader/
+│       ├── main.go          # application startup
+│       ├── api.go           # frontend RPC state
+│       ├── bridge.go        # webview bindings and events
+│       ├── download.go      # download commands and lifecycle
+│       ├── preferences.go   # persistent user preferences
+│       ├── system.go        # operating-system commands
+│       ├── pickdir_*.go     # native folder picker
+│       ├── window_*.go      # window state per platform
+│       ├── rsrc_*.syso      # compiled Windows resources
+│       └── resources/
+│           └── icon.png     # source application icon
 ├── internal/
 │   ├── downloader/
 │   │   ├── fetcher.go       # HTTP client (redirects, UA, timeout)
 │   │   ├── html.go          # goquery-based HTML parsing & rewriting
 │   │   ├── path.go          # URL → on-disk path mapping
 │   │   └── downloader.go    # BFS orchestrator + event callbacks
-│   └── locale/
-│       └── locale.go        # system UI language detection
-├── web/
-│   ├── index.html           # UI (HTML + CSS + JS, single file)
-│   └── i18n.json            # 30+ language translations
-├── assets/
-│   └── icon.png             # app icon
-├── build.bat                # builds build\webdownloader.exe
-├── run.bat                  # builds (if needed) and launches
+│   ├── locale/
+│   │   └── locale.go        # system UI language detection
+│   └── webui/
+│       ├── assets.go        # embedded frontend access
+│       └── web/
+│           ├── index.html   # frontend structure
+│           ├── styles.css   # frontend styles
+│           ├── app.js       # frontend behavior
+│           ├── i18n.json    # 30+ language translations
+│           └── vendor/      # offline third-party assets and licenses
+├── docs/
+│   └── images/              # README and documentation images
+├── tools/
+│   ├── examples/            # standalone usage examples
+│   └── i18n/                # translation maintenance scripts
+├── build.bat                # builds webdownloader.exe
 └── go.mod
 ```
 
 ## CLI flags
 
 ```
-webdownloader.exe [--debug]
+webdownloader.exe [--debug] [--portable]
 ```
 
 - `--debug` — enable the webview DevTools (right-click → Inspect). Useful
   for tweaking the front-end; not needed by end users.
+- `--portable` — store preferences, logs, and downloads next to the EXE.
 
 ## How it works
 
-1. The HTML page is embedded in the binary via `//go:embed web/*` and
-   served to webview through `SetHtml`.
+1. The frontend is embedded by `internal/webui` and served from memory on a
+   random loopback address (`127.0.0.1`). No temporary UI files are created;
+   preferences and history are persisted by the Go backend.
 2. The Go side exposes a small RPC API to JS (`api_download`,
    `api_pickFolder`, `api_openFolder`, `api_getLocale`,
    `api_defaultOutputPath`, `api_i18n`).
