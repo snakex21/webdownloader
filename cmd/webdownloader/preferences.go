@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -96,6 +97,9 @@ func readPrefsMap() map[string]any {
 		return prefs
 	}
 	if err := json.Unmarshal(data, &prefs); err != nil {
+		// Keep the unreadable file instead of letting the next save
+		// silently replace it (and the whole history) with defaults.
+		_ = os.Rename(prefsPath(), prefsPath()+".corrupt")
 		return map[string]any{}
 	}
 	return prefs
@@ -111,6 +115,24 @@ func jsonMarshalPrefs(prefs map[string]any) ([]byte, error) {
 	return json.MarshalIndent(prefs, "", "  ")
 }
 
+// writePrefsBytes replaces prefs.json atomically so a crash or a full disk
+// cannot leave a truncated file behind.
 func writePrefsBytes(data []byte) error {
-	return os.WriteFile(prefsPath(), data, 0o644)
+	target := prefsPath()
+	tmp, err := os.CreateTemp(filepath.Dir(target), ".prefs-*.tmp")
+	if err != nil {
+		return err
+	}
+	_, werr := tmp.Write(data)
+	serr := tmp.Sync()
+	cerr := tmp.Close()
+	if err := errors.Join(werr, serr, cerr); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), target); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return nil
 }
