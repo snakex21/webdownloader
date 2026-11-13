@@ -19,6 +19,10 @@ const (
 	minWindowHeight  = 720
 )
 
+// version is set at build time: build.bat <version> passes
+// -ldflags "-X main.version=<version>".
+var version = "dev"
+
 func main() {
 	os.Exit(realMain())
 }
@@ -39,6 +43,7 @@ func realMain() int {
 		return 1
 	}
 	defer logFile.Close()
+	log.Printf("%s %s starting", applicationTitle, version)
 
 	if err := run(*debug); err != nil {
 		log.Printf("fatal error: %v", err)
