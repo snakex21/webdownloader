@@ -6,7 +6,7 @@ import (
 )
 
 func TestFilePathFor(t *testing.T) {
-	base := "/tmp/site"
+	base := filepath.Join(t.TempDir(), "site")
 	cases := []struct {
 		name string
 		in   string
@@ -36,7 +36,7 @@ func TestFilePathFor(t *testing.T) {
 }
 
 func TestAssetPathFor(t *testing.T) {
-	base := "/tmp/site"
+	base := filepath.Join(t.TempDir(), "site")
 	cases := []struct {
 		name string
 		in   string
@@ -61,7 +61,7 @@ func TestAssetPathFor(t *testing.T) {
 }
 
 func TestRelativePagePath(t *testing.T) {
-	base := "/tmp/site"
+	base := filepath.Join(t.TempDir(), "site")
 	cases := []struct {
 		name    string
 		fromURL string
@@ -107,12 +107,36 @@ func TestRelativePagePath(t *testing.T) {
 }
 
 func TestRelativeAssetPath(t *testing.T) {
-	base := "/tmp/site"
+	base := filepath.Join(t.TempDir(), "site")
 	got, err := RelativeAssetPath(base, "https://example.com/blog/post", "https://example.com/files/doc.pdf")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 	if got != "../../files/doc.pdf" {
 		t.Errorf("got %q, want %q", got, "../../files/doc.pdf")
+	}
+}
+
+func TestFilePathForRejectsTraversal(t *testing.T) {
+	base := t.TempDir()
+	for _, rawURL := range []string{
+		"https://example.com/../outside.txt",
+		"https://example.com/%2e%2e/outside.txt",
+	} {
+		if got, err := FilePathFor(base, rawURL); err == nil {
+			t.Fatalf("FilePathFor(%q) = %q, want traversal error", rawURL, got)
+		}
+	}
+}
+
+func TestAssetPathForRejectsTraversal(t *testing.T) {
+	base := t.TempDir()
+	for _, rawURL := range []string{
+		"https://example.com/../outside.png",
+		"https://example.com/%2e%2e/outside.png",
+	} {
+		if got, err := AssetPathFor(base, rawURL); err == nil {
+			t.Fatalf("AssetPathFor(%q) = %q, want traversal error", rawURL, got)
+		}
 	}
 }
