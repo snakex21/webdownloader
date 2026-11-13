@@ -401,3 +401,63 @@ func TestApexLinksOfWWWSiteAreInternal(t *testing.T) {
 		t.Error("apex asset not downloaded")
 	}
 }
+
+func TestTrackerHosts(t *testing.T) {
+	for host, want := range map[string]bool{
+		"www.googletagmanager.com": true,
+		"get.optad360.io":          true,
+		"cmp.example.pl":           true,
+		"stats.g.doubleclick.net":  true,
+		"connect.facebook.net":     true,
+		"cdnjs.cloudflare.com":     false,
+		"fonts.googleapis.com":     false,
+		"cdn.jsdelivr.net":         false,
+		"foto.skijumping.pl":       false,
+		"ads.com":                  false,
+	} {
+		if got := IsTrackerHost(host); got != want {
+			t.Errorf("IsTrackerHost(%q) = %v, want %v", host, got, want)
+		}
+	}
+}
+
+func TestSummarySplitsTrackersAndListsFailures(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<script src="https://www.googletagmanager.com/gtm.js"></script>
+<script src="https://cmp.example.org/cmp.js"></script>
+<script src="https://cdnjs.cloudflare.com/lib.js"></script>
+<img src="/gone.png"><img src="/secret.png">`)
+		case "/secret.png":
+			http.Error(w, "no", http.StatusForbidden)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	sum, err := Download(Options{URL: srv.URL + "/", OutputDir: t.TempDir()}, Events{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.SkippedExternal != 1 || sum.SkippedExternalHosts[0] != "cdnjs.cloudflare.com" {
+		t.Errorf("content hosts = %d %v", sum.SkippedExternal, sum.SkippedExternalHosts)
+	}
+	if sum.SkippedTrackers != 2 {
+		t.Errorf("trackers = %d %v", sum.SkippedTrackers, sum.SkippedTrackerHosts)
+	}
+	if len(sum.FailedFiles) != 2 {
+		t.Fatalf("failed files = %+v", sum.FailedFiles)
+	}
+	got := map[int]bool{}
+	for _, f := range sum.FailedFiles {
+		if f.Kind != "http" {
+			t.Errorf("kind = %q for %s", f.Kind, f.URL)
+		}
+		got[f.Status] = true
+	}
+	if !got[404] || !got[403] {
+		t.Errorf("statuses = %v, want 403 and 404", got)
+	}
+}
