@@ -8,10 +8,15 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/PuerkitoBio/goquery"
+	"golang.org/x/net/html"
 )
 
 type PauseController struct{ paused atomic.Bool }
@@ -50,8 +55,8 @@ var fileExtensions = map[string]struct{}{
 }
 
 // Mode controls how pages are fetched. The default "http" mode is fast and
-// uses the standard HTTP client. "browser" mode renders every page through
-// a headless Chromium (useful for SPAs and other JS-heavy sites).
+// uses the standard HTTP client. "browser" mode renders every page in a
+// browser engine and saves everything the page loads.
 type Mode string
 
 const (
@@ -72,6 +77,8 @@ type Options struct {
 	MaxDepth int
 	// Mode selects the fetcher: "http" (default) or "browser".
 	Mode Mode
+	// Engine selects the browser for ModeBrowser (default: auto).
+	Engine Engine
 	// DownloadAll enables attachment downloads (PDF/ZIP/DOC/...).
 	DownloadAll bool
 	// IncludeSubdomains extends the on-domain filter to subdomains of the
@@ -92,9 +99,16 @@ type Options struct {
 	MaxFileBytes int64
 	// Retries is the number of extra attempts for a failed HTTP request
 	// (with a short back-off). Defaults to 2.
-	Retries      int
-	Cookie       string
+	Retries int
+	Cookie  string
+	// SkipExisting reuses complete asset files already in OutputDir
+	// (resume). Refresh overrides it: every file is downloaded again and
+	// overwritten (updating an existing copy).
 	SkipExisting bool
+	Refresh      bool
+	// PageDelay is the pause between pages (politeness). Default 250 ms;
+	// negative means none.
+	PageDelay time.Duration
 }
 
 // Summary reports the totals of a completed run.
@@ -106,6 +120,29 @@ type Summary struct {
 	OutputDir   string
 	Cancelled   bool
 	ReportPath  string
+	// StartFile is the saved start page (empty when it failed).
+	StartFile string
+	// Failed is true when not even the start page could be saved.
+	Failed bool
+	// FailKind classifies the failure for the UI: "http", "dns",
+	// "refused", "timeout", "tls", "browser", "too_large", "invalid",
+	// "write", "other". FailStatus is the HTTP status for "http".
+	FailKind   string
+	FailStatus int
+	FailDetail string
+	// Errors counts failed pages/assets (speculative misses excluded).
+	Errors int
+	// SkippedExternal counts references to other hosts (CDNs) that were
+	// not downloaded because external assets are off.
+	SkippedExternal      int
+	SkippedExternalHosts []string
+	// NeedsServer is true when the copy uses ES modules or fetch(), which
+	// browsers block on file:// - open it through the offline preview.
+	NeedsServer bool
+	// Engine names the browser engine used in browser mode.
+	Engine string
+	// Elapsed is the wall time of the run.
+	Elapsed time.Duration
 }
 
 // Events receives progress notifications from a running download. All
@@ -127,21 +164,56 @@ type PageEvent struct {
 	Assets      int
 	Attachments int
 	Bytes       int64
+	// Queued is the number of pages waiting in the crawl queue.
+	Queued int
 }
 
 // pageFetcher is the contract Download uses to grab one page. The default
-// HTTP implementation lives in this file; the "browser" implementation is
+// HTTP implementation lives in fetcher.go; the "browser" implementation is
 // in browser.go.
 type pageFetcher interface {
 	FetchPage(url string) (*FetchResult, error)
 	Close() error
 }
 
+// maxSpeculative caps requests made for URLs guessed from script and JSON
+// string literals, so a data-heavy script cannot explode a crawl.
+const maxSpeculative = 3000
+
+// crawler holds the state of one Download run.
+type crawler struct {
+	opts    Options
+	domain  string
+	ctx     context.Context
+	http    *Fetcher
+	fetcher pageFetcher
+	events  Events
+	seen    map[string]struct{}
+	// seenPaths dedupes by output file: "app.js?v=7" and "app.js" are
+	// saved to the same file and must be fetched and counted once.
+	seenPaths  map[string]struct{}
+	totalBytes atomic.Int64
+	assets     int
+
+	// Script/JSON literal discovery.
+	jsLiterals       map[string][]string // script URL -> document-relative literals
+	scanned          map[string]struct{}
+	speculativeTried map[string]struct{}
+	discoveredPages  []string // pages found in literals for the current page
+
+	skippedExternal map[string]int
+	reportErrors    []map[string]string
+	speculativeMiss int
+	needsServer     bool
+}
+
 // Download runs a recursive download described by opts and emits progress
 // events through events. It returns once every reachable page up to
 // MaxDepth has been processed, one of the limits has been reached, or the
-// user calls fetcher.Cancel().
+// run was cancelled. A failure to save even the start page is reported in
+// Summary.Failed (and OnComplete), not as an error.
 func Download(opts Options, events Events) (Summary, error) {
+	started := time.Now()
 	if events.OnPage == nil {
 		events.OnPage = func(PageEvent) {}
 	}
@@ -169,6 +241,9 @@ func Download(opts Options, events Events) (Summary, error) {
 	if opts.Retries < 0 {
 		opts.Retries = 0
 	}
+	if opts.PageDelay == 0 {
+		opts.PageDelay = 250 * time.Millisecond
+	}
 
 	parsed, err := url.Parse(opts.URL)
 	if err != nil {
@@ -177,96 +252,135 @@ func Download(opts Options, events Events) (Summary, error) {
 	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" {
 		return Summary{}, fmt.Errorf("%w: expected an absolute HTTP(S) URL", ErrInvalidURL)
 	}
-	if _, err := FilePathFor(opts.OutputDir, opts.URL); err != nil {
+	startFile, err := FilePathFor(opts.OutputDir, opts.URL)
+	if err != nil {
 		return Summary{}, fmt.Errorf("%w: %v", ErrInvalidURL, err)
 	}
-	domain := parsed.Hostname()
 
+	_, statErr := os.Stat(opts.OutputDir)
+	createdDir := os.IsNotExist(statErr)
 	if err := os.MkdirAll(opts.OutputDir, 0o755); err != nil {
 		return Summary{}, fmt.Errorf("create output dir: %w", err)
 	}
 
-	httpFetcher := NewFetcherWithContext(opts.Context, opts.Retries)
-	httpFetcher.SetCookie(opts.Cookie, opts.URL)
-	defer httpFetcher.Cancel()
-
-	var fetcher pageFetcher = httpFetcher
-	if opts.Mode == ModeBrowser {
-		bf, bfErr := newBrowserFetcher(httpFetcher, httpFetcher.ctx)
-		if bfErr != nil {
-			events.OnError(opts.URL, bfErr)
-			return Summary{}, bfErr
-		}
-		fetcher = bf
-		defer bf.Close()
+	c := &crawler{
+		opts:             opts,
+		domain:           parsed.Hostname(),
+		events:           events,
+		seen:             make(map[string]struct{}),
+		seenPaths:        make(map[string]struct{}),
+		jsLiterals:       make(map[string][]string),
+		scanned:          make(map[string]struct{}),
+		speculativeTried: make(map[string]struct{}),
+		skippedExternal:  make(map[string]int),
 	}
+	c.http = NewFetcherWithContext(opts.Context, opts.Retries)
+	c.http.SetCookie(opts.Cookie, opts.URL)
+	defer c.http.Cancel()
+	c.ctx = c.http.ctx
+	c.fetcher = c.http
 
-	// Open the error log (one line per failure). Best-effort: a failure
-	// to open the log is not fatal.
+	// Open the error log (one line per failure). Best-effort.
 	var errLog *os.File
 	if root, err := os.OpenRoot(opts.OutputDir); err == nil {
-		defer root.Close()
 		if f, ferr := root.OpenFile("download-errors.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644); ferr == nil {
 			errLog = f
-			defer f.Close()
 		}
+		root.Close()
 	}
 	uiOnError := events.OnError
-	logError := func(pageURL string, err error) {
+	c.events.OnError = func(pageURL string, err error) {
+		c.reportErrors = append(c.reportErrors, map[string]string{"url": pageURL, "error": err.Error()})
 		uiOnError(pageURL, err)
 		if errLog != nil {
 			line := time.Now().Format(time.RFC3339) + " " + pageURL + " " + err.Error() + "\n"
 			_, _ = errLog.WriteString(line)
 		}
 	}
-	var reportErrors []map[string]string
-	logReportError := func(pageURL string, err error) {
-		reportErrors = append(reportErrors, map[string]string{"url": pageURL, "error": err.Error()})
-		logError(pageURL, err)
+
+	summary := Summary{OutputDir: opts.OutputDir, ReportPath: filepath.Join(opts.OutputDir, "download-report.json")}
+	finish := func() (Summary, error) {
+		summary.Bytes = c.totalBytes.Load()
+		summary.Assets = c.assets
+		summary.Errors = len(c.reportErrors)
+		summary.SkippedExternal, summary.SkippedExternalHosts = c.skippedTotals()
+		summary.NeedsServer = c.needsServer
+		summary.Elapsed = time.Since(started)
+		if summary.Pages > 0 {
+			if _, err := os.Stat(startFile); err == nil {
+				summary.StartFile = startFile
+			}
+		}
+		if errLog != nil {
+			_ = errLog.Close()
+		}
+		if summary.Failed && createdDir && onlyRunMetadata(opts.OutputDir) {
+			// Nothing was saved: do not leave an empty folder behind.
+			_ = os.RemoveAll(opts.OutputDir)
+			summary.ReportPath = ""
+		} else {
+			writeReport(summary.ReportPath, opts, summary, c.reportErrors, c.speculativeMiss)
+		}
+		c.events.OnComplete(summary)
+		return summary, nil
 	}
-	// Asset/attachment failures reported from downloadPage and the CSS
-	// rewriter end up in the UI, download-errors.log and the JSON report.
-	events.OnError = logReportError
+
+	if opts.Mode == ModeBrowser {
+		bf, bfErr := newBrowserFetcher(c.http, c.ctx, opts.Engine, opts.MaxFileBytes)
+		if bfErr != nil {
+			if c.ctx.Err() != nil {
+				summary.Cancelled = true
+				return finish()
+			}
+			c.events.OnError(opts.URL, bfErr)
+			summary.Failed = true
+			summary.FailKind = "browser"
+			summary.FailDetail = bfErr.Error()
+			return finish()
+		}
+		c.fetcher = bf
+		summary.Engine = bf.EngineName()
+		defer bf.Close()
+	}
 
 	type queueItem struct {
-		URL   string
-		Depth int
+		URL         string
+		Depth       int
+		Speculative bool
 	}
 	queue := []queueItem{{URL: opts.URL, Depth: 0}}
+	queued := map[string]struct{}{opts.URL: {}}
 	visited := make(map[string]struct{})
+	visitedFiles := make(map[string]struct{}) // "/" and "/index.html" are one page
 	attachmentsSeen := make(map[string]struct{})
 
-	var (
-		pageCount       int
-		assetCount      int
-		attachmentCount int
-		totalBytes      atomic.Int64
-		cancelled       bool
-	)
-	// Track every URL we've ever asked the OS to write so we don't fetch
-	// the same asset twice (cheap deduplication).
-	downloadedAssets := make(map[string]struct{})
-
-	emit := func(ev PageEvent) { events.OnPage(ev) }
-	ctx := httpFetcher.ctx
+	emit := func(item queueItem, status string) {
+		c.events.OnPage(PageEvent{
+			URL:         item.URL,
+			Status:      status,
+			Depth:       item.Depth,
+			Pages:       summary.Pages,
+			Assets:      c.assets,
+			Attachments: summary.Attachments,
+			Bytes:       c.totalBytes.Load(),
+			Queued:      len(queue),
+		})
+	}
 
 loop:
 	for {
-		if err := opts.Pause.Wait(ctx); err != nil {
-			cancelled = true
-			break loop
-		}
-		select {
-		case <-ctx.Done():
-			cancelled = true
-			break loop
-		default:
-		}
-
-		if opts.MaxPages > 0 && pageCount >= opts.MaxPages {
+		if err := opts.Pause.Wait(c.ctx); err != nil {
+			summary.Cancelled = true
 			break
 		}
-		if opts.MaxTotalBytes > 0 && totalBytes.Load() >= opts.MaxTotalBytes {
+		if c.ctx.Err() != nil {
+			summary.Cancelled = true
+			break
+		}
+		if opts.MaxPages > 0 && summary.Pages >= opts.MaxPages {
+			break
+		}
+		if opts.MaxTotalBytes > 0 && c.totalBytes.Load() >= opts.MaxTotalBytes {
 			break
 		}
 		if len(queue) == 0 {
@@ -275,7 +389,6 @@ loop:
 
 		item := queue[0]
 		queue = queue[1:]
-
 		if _, ok := visited[item.URL]; ok {
 			continue
 		}
@@ -283,121 +396,153 @@ loop:
 			continue
 		}
 		visited[item.URL] = struct{}{}
-
-		emit(PageEvent{
-			URL:         item.URL,
-			Status:      "downloading",
-			Depth:       item.Depth,
-			Pages:       pageCount,
-			Assets:      assetCount,
-			Attachments: attachmentCount,
-			Bytes:       totalBytes.Load(),
-		})
-
-		pageAssets, links, attachments, _, err := downloadPage(
-			fetcher, httpFetcher, opts, item.URL, domain, downloadedAssets, &totalBytes, events,
-		)
-		if err != nil {
-			// Treat user-initiated cancellation as a soft stop, not an error.
-			if errors.Is(err, context.Canceled) || ctx.Err() != nil {
-				cancelled = true
-				break
+		if p, err := FilePathFor(opts.OutputDir, item.URL); err == nil {
+			key := strings.ToLower(p)
+			if _, dup := visitedFiles[key]; dup {
+				continue
 			}
-			logReportError(item.URL, err)
-			emit(PageEvent{
-				URL:         item.URL,
-				Status:      "error",
-				Depth:       item.Depth,
-				Pages:       pageCount,
-				Assets:      assetCount,
-				Attachments: attachmentCount,
-				Bytes:       totalBytes.Load(),
-			})
+			visitedFiles[key] = struct{}{}
+		}
+		// Pages guessed from script literals are probed over plain HTTP
+		// first: rendering a 404 in the browser would cost seconds each.
+		if item.Speculative && opts.Mode == ModeBrowser && !c.probePage(item.URL) {
+			c.speculativeMiss++
 			continue
 		}
-		pageCount++
-		assetCount += pageAssets
+		emit(item, "downloading")
+
+		c.discoveredPages = nil
+		links, attachments, err := c.downloadPage(item.URL)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || c.ctx.Err() != nil {
+				summary.Cancelled = true
+				break
+			}
+			if item.Speculative {
+				c.speculativeMiss++
+				continue
+			}
+			c.events.OnError(item.URL, err)
+			if item.Depth == 0 && summary.Pages == 0 {
+				summary.Failed = true
+				summary.FailKind, summary.FailStatus = classifyError(err)
+				summary.FailDetail = err.Error()
+			}
+			emit(item, "error")
+			continue
+		}
+		summary.Pages++
 
 		if opts.DownloadAll {
 			for _, attURL := range attachments {
-				if err := opts.Pause.Wait(ctx); err != nil {
-					cancelled = true
+				if err := opts.Pause.Wait(c.ctx); err != nil {
+					summary.Cancelled = true
 					break loop
 				}
 				if _, ok := attachmentsSeen[attURL]; ok {
 					continue
 				}
 				attachmentsSeen[attURL] = struct{}{}
-				dl, err := downloadAssetFileWithLimit(httpFetcher, opts.OutputDir, attURL, opts.MaxFileBytes, downloadedAssets)
+				dl, err := c.download(attURL)
 				if err != nil {
-					reportAssetError(ctx, events, attURL, err)
+					reportAssetError(c.ctx, c.events, attURL, err)
 				} else if !dl.reused {
-					attachmentCount++
-					totalBytes.Add(dl.size)
+					summary.Attachments++
+					c.totalBytes.Add(dl.size)
 				}
-				events.OnAsset(attURL, "attachment")
-				if opts.MaxTotalBytes > 0 && totalBytes.Load() >= opts.MaxTotalBytes {
+				c.events.OnAsset(attURL, "attachment")
+				if opts.MaxTotalBytes > 0 && c.totalBytes.Load() >= opts.MaxTotalBytes {
 					break
 				}
 			}
 		}
 
-		emit(PageEvent{
-			URL:         item.URL,
-			Status:      "done",
-			Depth:       item.Depth,
-			Pages:       pageCount,
-			Assets:      assetCount,
-			Attachments: attachmentCount,
-			Bytes:       totalBytes.Load(),
-		})
-		log.Printf("[PROGRESS] Strony: %d, Assety: %d, Zalaczniki: %d, Bajty: %d",
-			pageCount, assetCount, attachmentCount, totalBytes.Load())
-
 		if item.Depth+1 < opts.MaxDepth {
-			for _, link := range links {
-				if _, ok := visited[link]; ok {
-					continue
+			enqueue := func(link string, speculative bool) {
+				if _, ok := queued[link]; ok {
+					return
 				}
-				queue = append(queue, queueItem{URL: link, Depth: item.Depth + 1})
+				queued[link] = struct{}{}
+				queue = append(queue, queueItem{URL: link, Depth: item.Depth + 1, Speculative: speculative})
+			}
+			for _, link := range links {
+				enqueue(link, false)
+			}
+			for _, link := range c.discoveredPages {
+				enqueue(link, true)
 			}
 		}
+		emit(item, "done")
+		log.Printf("[PROGRESS] pages=%d assets=%d attachments=%d bytes=%d queued=%d",
+			summary.Pages, c.assets, summary.Attachments, c.totalBytes.Load(), len(queue))
 
-		// small delay to keep the UI smooth, mirrors the original behaviour
-		select {
-		case <-ctx.Done():
-			cancelled = true
-			break loop
-		case <-time.After(500 * time.Millisecond):
+		if opts.PageDelay > 0 && len(queue) > 0 {
+			select {
+			case <-c.ctx.Done():
+				summary.Cancelled = true
+				break loop
+			case <-time.After(opts.PageDelay):
+			}
 		}
 	}
-
-	reportPath := filepath.Join(opts.OutputDir, "download-report.json")
-	summary := Summary{
-		Pages:       pageCount,
-		Assets:      assetCount,
-		Attachments: attachmentCount,
-		Bytes:       totalBytes.Load(),
-		OutputDir:   opts.OutputDir,
-		Cancelled:   cancelled,
-		ReportPath:  reportPath,
-	}
-	writeReport(reportPath, opts, summary, reportErrors)
-	events.OnComplete(summary)
-	return summary, nil
+	return finish()
 }
 
-func writeReport(path string, opts Options, summary Summary, errs []map[string]string) {
+// onlyRunMetadata reports whether dir holds nothing but the files Download
+// itself creates at the start (so it can be removed after a failed start).
+func onlyRunMetadata(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		switch e.Name() {
+		case "download-errors.log", "download-report.json":
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func (c *crawler) skippedTotals() (int, []string) {
+	total := 0
+	hosts := make([]string, 0, len(c.skippedExternal))
+	for h, n := range c.skippedExternal {
+		total += n
+		hosts = append(hosts, h)
+	}
+	sort.Slice(hosts, func(i, j int) bool {
+		return c.skippedExternal[hosts[i]] > c.skippedExternal[hosts[j]] ||
+			(c.skippedExternal[hosts[i]] == c.skippedExternal[hosts[j]] && hosts[i] < hosts[j])
+	})
+	return total, hosts
+}
+
+func writeReport(path string, opts Options, summary Summary, errs []map[string]string, speculativeMiss int) {
+	if errs == nil {
+		errs = []map[string]string{}
+	}
 	report := map[string]any{
-		"url":         opts.URL,
-		"outputDir":   opts.OutputDir,
-		"pages":       summary.Pages,
-		"assets":      summary.Assets,
-		"attachments": summary.Attachments,
-		"bytes":       summary.Bytes,
-		"cancelled":   summary.Cancelled,
-		"finishedAt":  time.Now().Format(time.RFC3339),
-		"errors":      errs,
+		"url":                  opts.URL,
+		"outputDir":            opts.OutputDir,
+		"mode":                 opts.Mode,
+		"engine":               summary.Engine,
+		"pages":                summary.Pages,
+		"assets":               summary.Assets,
+		"attachments":          summary.Attachments,
+		"bytes":                summary.Bytes,
+		"cancelled":            summary.Cancelled,
+		"failed":               summary.Failed,
+		"failKind":             summary.FailKind,
+		"startFile":            summary.StartFile,
+		"needsServer":          summary.NeedsServer,
+		"skippedExternal":      summary.SkippedExternal,
+		"skippedExternalHosts": summary.SkippedExternalHosts,
+		"speculativeMisses":    speculativeMiss,
+		"elapsedSeconds":       summary.Elapsed.Seconds(),
+		"finishedAt":           time.Now().Format(time.RFC3339),
+		"errors":               errs,
 	}
 	if data, err := json.MarshalIndent(report, "", "  "); err == nil {
 		_ = writeOutputFile(opts.OutputDir, path, data)
@@ -463,131 +608,424 @@ func isSubdomain(host, base string) bool {
 	return strings.HasSuffix(host, "."+base)
 }
 
-// downloadPage fetches a single page, downloads all of its relative assets
-// (rewriting the HTML in place), and classifies outbound <a href> links
-// into "follow" links and (when DownloadAll is true) attachments.
-func downloadPage(
-	fetcher pageFetcher,
-	httpFetcher *Fetcher,
-	opts Options,
-	pageURL, domain string,
-	downloadedAssets map[string]struct{},
-	totalBytes *atomic.Int64,
-	events Events,
-) (pageAssets int, links, attachments []string, pageBytes int64, err error) {
-	if err := opts.Pause.Wait(opts.Context); err != nil {
-		return 0, nil, nil, 0, err
+// download fetches one asset into the mirror (reusing earlier copies as
+// configured).
+func (c *crawler) download(assetURL string) (downloadResult, error) {
+	if p, err := AssetPathFor(c.opts.OutputDir, assetURL); err == nil {
+		key := strings.ToLower(p)
+		if _, dup := c.seenPaths[key]; dup {
+			c.seen[assetURL] = struct{}{}
+			return downloadResult{path: p, reused: true}, nil
+		}
+		dl, err := downloadAsset(c.http, c.opts.OutputDir, assetURL, c.opts.MaxFileBytes, c.seen, !c.opts.Refresh)
+		if err == nil {
+			c.seenPaths[key] = struct{}{}
+		}
+		return dl, err
+	}
+	return downloadAsset(c.http, c.opts.OutputDir, assetURL, c.opts.MaxFileBytes, c.seen, !c.opts.Refresh)
+}
+
+// probePage reports whether a guessed page URL answers with HTML.
+func (c *crawler) probePage(pageURL string) bool {
+	resp, err := c.http.FetchURLWithLimit(pageURL, 8<<20)
+	return err == nil && resp.OK && resp.IsHTML()
+}
+
+// fetchAsset downloads an asset referenced from pageURL, post-processes CSS,
+// scripts and JSON, and returns the local file path. ok is false when the
+// asset is out of scope or failed. Speculative URLs (guessed from string
+// literals) fail silently.
+func (c *crawler) fetchAsset(assetURL, pageURL string, speculative bool) (string, bool) {
+	if !isHTTPURL(assetURL) {
+		return "", false
+	}
+	if !shouldDownloadAsset(assetURL, c.domain, c.opts) {
+		if !speculative {
+			if u, err := url.Parse(assetURL); err == nil {
+				c.skippedExternal[strings.ToLower(u.Hostname())]++
+			}
+		}
+		return "", false
+	}
+	if speculative {
+		if _, tried := c.speculativeTried[assetURL]; tried {
+			if _, ok := c.seen[assetURL]; !ok {
+				return "", false
+			}
+		} else {
+			if len(c.speculativeTried) >= maxSpeculative {
+				return "", false
+			}
+			c.speculativeTried[assetURL] = struct{}{}
+		}
+	}
+	if err := c.opts.Pause.Wait(c.ctx); err != nil {
+		return "", false
+	}
+	dl, err := c.download(assetURL)
+	if err != nil {
+		if speculative {
+			c.speculativeMiss++
+		} else {
+			reportAssetError(c.ctx, c.events, assetURL, err)
+		}
+		return "", false
+	}
+	c.totalBytes.Add(dl.size)
+	if !dl.reused {
+		c.assets++
+		c.events.OnAsset(assetURL, "asset")
+	}
+	c.postProcess(assetURL, pageURL, dl)
+	return dl.path, true
+}
+
+// storeCaptured saves a response the browser already downloaded.
+func (c *crawler) storeCaptured(r capturedResource, pageURL string) {
+	if _, dup := c.seen[r.URL]; dup {
+		return
+	}
+	if !shouldDownloadAsset(r.URL, c.domain, c.opts) {
+		if u, err := url.Parse(r.URL); err == nil {
+			c.skippedExternal[strings.ToLower(u.Hostname())]++
+		}
+		return
+	}
+	if c.opts.MaxFileBytes > 0 && int64(len(r.Body)) > c.opts.MaxFileBytes {
+		return
+	}
+	p, err := AssetPathFor(c.opts.OutputDir, r.URL)
+	if err != nil {
+		return
+	}
+	pathKey := strings.ToLower(p)
+	if _, dup := c.seenPaths[pathKey]; dup {
+		c.seen[r.URL] = struct{}{}
+		return
+	}
+	c.seenPaths[pathKey] = struct{}{}
+	if err := writeOutputFile(c.opts.OutputDir, p, r.Body); err != nil {
+		reportAssetError(c.ctx, c.events, r.URL, err)
+		return
+	}
+	c.seen[r.URL] = struct{}{}
+	c.totalBytes.Add(int64(len(r.Body)))
+	c.assets++
+	c.events.OnAsset(r.URL, "asset")
+	c.postProcess(r.URL, pageURL, downloadResult{path: p, size: int64(len(r.Body)), body: r.Body, contentType: r.MimeType})
+}
+
+// postProcess rewrites CSS and mines scripts / JSON for more references.
+// Files reused from an earlier run are read back for scanning (their CSS
+// was already rewritten then).
+func (c *crawler) postProcess(assetURL, pageURL string, dl downloadResult) {
+	kind := assetKind(dl.path, dl.contentType)
+	if kind == "" {
+		return
+	}
+	if kind == "css" {
+		if dl.reused || dl.body == nil {
+			return
+		}
+		_, _ = c.rewriteCSS(dl.path, string(dl.body), assetURL)
+		return
+	}
+	if _, done := c.scanned[assetURL]; !done {
+		c.scanned[assetURL] = struct{}{}
+		body := dl.body
+		if body == nil {
+			body, _ = readOutputFile(c.opts.OutputDir, dl.path)
+		}
+		switch kind {
+		case "js":
+			c.scanScript(string(body), assetURL)
+		case "json":
+			c.scanJSON(body, assetURL, pageURL)
+		}
+	}
+	if kind == "js" {
+		c.resolveLiterals(c.jsLiterals[assetURL], pageURL)
+	}
+}
+
+// assetKind classifies a file for post-processing.
+func assetKind(p, contentType string) string {
+	ct := strings.ToLower(contentType)
+	switch strings.ToLower(filepath.Ext(p)) {
+	case ".css":
+		return "css"
+	case ".js", ".mjs":
+		return "js"
+	case ".json":
+		return "json"
+	}
+	switch {
+	case strings.Contains(ct, "text/css"):
+		return "css"
+	case strings.Contains(ct, "javascript") || strings.Contains(ct, "ecmascript"):
+		return "js"
+	case strings.Contains(ct, "json"):
+		return "json"
+	}
+	return ""
+}
+
+// scanScript follows module references of a script and remembers its
+// document-relative literals.
+func (c *crawler) scanScript(src, scriptURL string) {
+	for _, ref := range ScanJS(src) {
+		switch ref.Kind {
+		case JSRefModule:
+			c.needsServer = true
+			if abs, err := absoluteURL(scriptURL, ref.URL); err == nil {
+				c.fetchAsset(abs, scriptURL, true)
+			}
+		case JSRefDocument:
+			c.jsLiterals[scriptURL] = append(c.jsLiterals[scriptURL], ref.URL)
+		}
+	}
+}
+
+// scanJSON follows path-like strings in a JSON file. Data files name
+// siblings ("win95.css" next to themes.json) as well as site paths
+// ("icons/a.png"), so both bases are tried.
+func (c *crawler) scanJSON(data []byte, jsonURL, pageURL string) {
+	c.needsServer = true // fetched JSON implies fetch()
+	lits := ScanJSON(data)
+	c.resolveLiterals(lits, jsonURL)
+	if pageURL != "" && pageURL != jsonURL {
+		c.resolveLiterals(lits, pageURL)
+	}
+}
+
+// resolveLiterals turns document-relative literals into speculative
+// downloads (files) or speculative pages (.html).
+func (c *crawler) resolveLiterals(lits []string, baseURL string) {
+	for _, lit := range lits {
+		abs, err := absoluteURL(baseURL, lit)
+		if err != nil || !isHTTPURL(abs) {
+			continue
+		}
+		u, err := url.Parse(abs)
+		if err != nil {
+			continue
+		}
+		u.Fragment = ""
+		abs = u.String()
+		if isHTMLPath(u.Path) {
+			if shouldFollowPage(abs, c.domain, c.opts) {
+				c.discoveredPages = append(c.discoveredPages, abs)
+			}
+			continue
+		}
+		if !sameScopeHost(u.Hostname(), c.domain, c.opts) {
+			continue // never guess CDN files
+		}
+		c.fetchAsset(abs, baseURL, true)
+	}
+}
+
+// downloadPage fetches a single page, downloads its assets (rewriting the
+// HTML in place), and classifies outbound links into pages to follow and
+// attachments.
+func (c *crawler) downloadPage(pageURL string) (links, attachments []string, err error) {
+	opts := c.opts
+	if err := opts.Pause.Wait(c.ctx); err != nil {
+		return nil, nil, err
 	}
 	var resp *FetchResult
 	var fetchErr error
-	if f, ok := fetcher.(*Fetcher); ok {
+	if f, ok := c.fetcher.(*Fetcher); ok {
 		resp, fetchErr = f.FetchURLWithLimit(pageURL, opts.MaxFileBytes)
 	} else {
-		resp, fetchErr = fetcher.FetchPage(pageURL)
+		resp, fetchErr = c.fetcher.FetchPage(pageURL)
 	}
 	if fetchErr != nil {
-		return 0, nil, nil, 0, fmt.Errorf("fetch: %w", fetchErr)
+		return nil, nil, fmt.Errorf("fetch: %w", fetchErr)
 	}
 	if opts.MaxFileBytes > 0 && int64(len(resp.Body)) > opts.MaxFileBytes {
-		return 0, nil, nil, 0, ErrFileTooLarge
+		return nil, nil, ErrFileTooLarge
 	}
 	if !resp.OK {
-		return 0, nil, nil, 0, fmt.Errorf("http %d", resp.Status)
+		return nil, nil, &HTTPStatusError{Status: resp.Status}
 	}
 	if !resp.IsHTML() {
 		// Not an HTML page: save the body we already have (no second
 		// request) where links to it are rewritten, i.e. the asset path.
-		if _, dup := downloadedAssets[pageURL]; dup {
-			return 0, nil, nil, 0, nil
+		if _, dup := c.seen[pageURL]; dup {
+			return nil, nil, nil
 		}
 		assetPath, pErr := AssetPathFor(opts.OutputDir, pageURL)
 		if pErr != nil {
-			return 0, nil, nil, 0, fmt.Errorf("asset path: %w", pErr)
+			return nil, nil, fmt.Errorf("asset path: %w", pErr)
 		}
 		if err := writeOutputFile(opts.OutputDir, assetPath, resp.Body); err != nil {
-			return 0, nil, nil, 0, fmt.Errorf("write file: %w", err)
+			return nil, nil, fmt.Errorf("write file: %w", err)
 		}
-		downloadedAssets[pageURL] = struct{}{}
-		pageBytes = int64(len(resp.Body))
-		totalBytes.Add(pageBytes)
-		return 0, nil, nil, pageBytes, nil
+		c.seen[pageURL] = struct{}{}
+		c.totalBytes.Add(int64(len(resp.Body)))
+		return nil, nil, nil
 	}
 
 	doc, refs, parseErr := RewriteAssets(string(resp.Body))
 	if parseErr != nil {
-		return 0, nil, nil, 0, fmt.Errorf("parse html: %w", parseErr)
+		return nil, nil, fmt.Errorf("parse html: %w", parseErr)
 	}
-	pageBytes = int64(len(resp.Body))
-	totalBytes.Add(pageBytes)
+	c.totalBytes.Add(int64(len(resp.Body)))
 
 	pagePath, fpErr := FilePathFor(opts.OutputDir, pageURL)
 	if fpErr != nil {
-		return 0, nil, nil, 0, fmt.Errorf("page path: %w", fpErr)
+		return nil, nil, fmt.Errorf("page path: %w", fpErr)
+	}
+	pageDir := filepath.Dir(pagePath)
+
+	// Browser mode: save what the browser loaded first, so the references
+	// below find the files already in place.
+	if resp.Rendered != nil {
+		for _, r := range resp.Rendered.Resources {
+			if err := opts.Pause.Wait(c.ctx); err != nil {
+				return nil, nil, err
+			}
+			c.storeCaptured(r, pageURL)
+		}
 	}
 
-	// Download assets and rewrite references. CSS files are processed
-	// recursively (their url(...) / @import references are downloaded too).
 	for _, ref := range refs {
-		if err := opts.Pause.Wait(opts.Context); err != nil {
-			return pageAssets, links, attachments, pageBytes, err
+		if err := opts.Pause.Wait(c.ctx); err != nil {
+			return links, attachments, err
 		}
 		assetURL, absErr := absoluteURL(pageURL, ref.URL)
 		if absErr != nil {
 			continue
 		}
-		// Filter out off-domain assets unless the user explicitly asked
-		// for them.
-		if isEmbeddedDocumentRef(ref) && !sameScopeAssetURL(assetURL, domain, opts) {
+		if isEmbeddedDocumentRef(ref) && !sameScopeAssetURL(assetURL, c.domain, opts) {
 			continue
 		}
-		if !shouldDownloadAsset(assetURL, domain, opts) {
+		localPath, ok := c.fetchAsset(assetURL, pageURL, false)
+		if !ok {
 			continue
 		}
-		dl, dlErr := downloadAssetFileWithLimit(httpFetcher, opts.OutputDir, assetURL, opts.MaxFileBytes, downloadedAssets)
-		if dlErr != nil {
-			reportAssetError(opts.Context, events, assetURL, dlErr)
-			continue
-		}
-		downloadedAssets[assetURL] = struct{}{}
-		totalBytes.Add(dl.size)
-
-		// If this is a CSS file, parse it for nested url() / @import
-		// references. The file is rewritten on disk so those references
-		// resolve to local assets.
-		if !dl.reused && isCSS(dl.path, dl.contentType) {
-			if added, cerr := rewriteCSSFile(httpFetcher, dl.path, string(dl.body), assetURL, opts, domain, downloadedAssets, totalBytes, events); cerr == nil {
-				pageAssets += added
-			}
-		}
-
-		rel, relErr := filepath.Rel(filepath.Dir(pagePath), dl.path)
-		if relErr != nil {
-			continue
-		}
-		rel = filepath.ToSlash(rel)
-		RewriteAssetURL(doc, ref.Tag, ref.Attr, ref.URL, rel)
-		if !dl.reused {
-			pageAssets++
-			events.OnAsset(assetURL, "asset")
+		if rel, ok := localRef(pageDir, localPath, assetURL); ok {
+			RewriteAssetURL(doc, ref.Tag, ref.Attr, ref.URL, rel)
 		}
 	}
+
+	c.processScripts(doc, pageURL, pageDir)
 
 	// Rewrite same-scope navigation to the local mirror and classify what the
 	// crawler should visit/download next.
-	links, attachments = RewriteLocalNavigation(doc, pageURL, opts.OutputDir, domain, opts)
+	links, attachments = RewriteLocalNavigation(doc, pageURL, opts.OutputDir, c.domain, opts)
 
-	// Rewrite meta refresh: <meta http-equiv="refresh" content="0; url=/foo">
+	// Links that only exist in the rendered DOM (built by scripts).
+	if resp.Rendered != nil {
+		seen := make(map[string]struct{}, len(links))
+		for _, l := range links {
+			seen[l] = struct{}{}
+		}
+		for _, l := range resp.Rendered.Links {
+			if u, err := url.Parse(l); err == nil {
+				u.Fragment = ""
+				l = u.String()
+				ext := strings.ToLower(path.Ext(u.Path))
+				htmlish := ext == "" || ext == ".html" || ext == ".htm" || u.RawQuery != ""
+				if !htmlish || !isHTTPURL(l) || !shouldFollowPage(l, c.domain, opts) {
+					continue
+				}
+				if _, dup := seen[l]; !dup {
+					seen[l] = struct{}{}
+					links = append(links, l)
+				}
+			}
+		}
+	}
+
 	RewriteMetaRefresh(doc, pageURL, opts.OutputDir)
 
-	// Write final HTML.
 	htmlOut, err := doc.Html()
 	if err != nil {
-		return pageAssets, links, attachments, pageBytes, fmt.Errorf("render html: %w", err)
+		return links, attachments, fmt.Errorf("render html: %w", err)
 	}
 	if err := writeOutputFile(opts.OutputDir, pagePath, []byte(htmlOut)); err != nil {
-		return pageAssets, links, attachments, pageBytes, fmt.Errorf("write html: %w", err)
+		return links, attachments, fmt.Errorf("write html: %w", err)
 	}
-	return pageAssets, links, attachments, pageBytes, nil
+	return links, attachments, nil
+}
+
+// processScripts handles import maps and inline scripts of a page.
+func (c *crawler) processScripts(doc *goquery.Document, pageURL, pageDir string) {
+	doc.Find("script").Each(func(_ int, s *goquery.Selection) {
+		typ := strings.ToLower(strings.TrimSpace(s.AttrOr("type", "")))
+		if typ == "module" {
+			c.needsServer = true
+		}
+		if _, hasSrc := s.Attr("src"); hasSrc {
+			// External scripts are post-processed when downloaded; their
+			// literals still resolve against this page.
+			if src, ok := s.Attr("src"); ok {
+				if abs, err := absoluteURL(pageURL, src); err == nil {
+					if lits, ok := c.jsLiterals[abs]; ok {
+						c.resolveLiterals(lits, pageURL)
+					}
+				}
+			}
+			return
+		}
+		body := s.Text()
+		switch typ {
+		case "importmap":
+			c.needsServer = true
+			replace := map[string]string{}
+			for _, target := range ImportMapTargets(body) {
+				abs, err := absoluteURL(pageURL, target)
+				if err != nil {
+					continue
+				}
+				localPath, ok := c.fetchAsset(abs, pageURL, false)
+				if !ok {
+					continue
+				}
+				if rel, ok := localRef(pageDir, localPath, abs); ok {
+					if !strings.HasPrefix(rel, ".") {
+						rel = "./" + rel
+					}
+					replace[target] = rel
+				}
+			}
+			if newBody := RewriteImportMap(body, replace); newBody != body {
+				setRawText(s, newBody)
+			}
+		case "", "text/javascript", "application/javascript", "module":
+			for _, ref := range ScanJS(body) {
+				abs, err := absoluteURL(pageURL, ref.URL)
+				if err != nil {
+					continue
+				}
+				if ref.Kind == JSRefModule {
+					c.needsServer = true
+					c.fetchAsset(abs, pageURL, true)
+				} else {
+					c.resolveLiterals([]string{ref.URL}, pageURL)
+				}
+			}
+		}
+	})
+}
+
+// localRef returns the relative URL from dir to the saved file, keeping the
+// original query for static files that are saved without it ("app.js?v=7").
+// Keeping it preserves module identity: a module imported once as
+// "app.js?v=7" and once as "app.js" would otherwise run twice.
+func localRef(dir, localPath, assetURL string) (string, bool) {
+	rel, err := filepath.Rel(dir, localPath)
+	if err != nil {
+		return "", false
+	}
+	rel = filepath.ToSlash(rel)
+	if u, err := url.Parse(assetURL); err == nil && u.RawQuery != "" && !isDynamicAssetPath(strings.TrimPrefix(u.Path, "/")) {
+		rel += "?" + u.RawQuery
+	}
+	return rel, true
 }
 
 func isEmbeddedDocumentRef(ref AssetRef) bool {
@@ -610,14 +1048,11 @@ func sameScopeAssetURL(absURL, baseDomain string, opts Options) bool {
 // isCSS is true when the file looks like a CSS stylesheet by extension or
 // Content-Type header.
 func isCSS(path, contentType string) bool {
-	if strings.EqualFold(filepath.Ext(path), ".css") {
-		return true
-	}
-	return strings.Contains(strings.ToLower(contentType), "text/css")
+	return assetKind(path, contentType) == "css"
 }
 
 // downloadResult bundles the on-disk path, size and content-type of a
-// downloaded asset. body is only populated for CSS (it is rewritten).
+// downloaded asset. body is populated for CSS, scripts and JSON.
 type downloadResult struct {
 	path        string
 	size        int64
@@ -627,10 +1062,15 @@ type downloadResult struct {
 }
 
 // downloadAssetFileWithLimit streams an asset to disk with an optional
-// per-file size cap. Files that already exist (complete, thanks to atomic
-// writes) are reused. The URL is recorded in `seen` (if non-nil) so the
-// caller can dedupe across pages.
+// per-file size cap, reusing complete files already on disk.
 func downloadAssetFileWithLimit(fetcher *Fetcher, baseDir, assetURL string, maxBytes int64, seen map[string]struct{}) (downloadResult, error) {
+	return downloadAsset(fetcher, baseDir, assetURL, maxBytes, seen, true)
+}
+
+// downloadAsset streams an asset to disk. Files that already exist
+// (complete, thanks to atomic writes) are reused when reuseExisting is set.
+// The URL is recorded in seen (if non-nil) to dedupe across pages.
+func downloadAsset(fetcher *Fetcher, baseDir, assetURL string, maxBytes int64, seen map[string]struct{}, reuseExisting bool) (downloadResult, error) {
 	fullPath, pathErr := AssetPathFor(baseDir, assetURL)
 	if pathErr != nil {
 		return downloadResult{}, pathErr
@@ -640,21 +1080,23 @@ func downloadAssetFileWithLimit(fetcher *Fetcher, baseDir, assetURL string, maxB
 			return downloadResult{path: fullPath, reused: true}, nil
 		}
 	}
-	if info, err := statOutputFile(baseDir, fullPath); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
-		if seen != nil {
-			seen[assetURL] = struct{}{}
+	if reuseExisting {
+		if info, err := statOutputFile(baseDir, fullPath); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
+			if seen != nil {
+				seen[assetURL] = struct{}{}
+			}
+			return downloadResult{path: fullPath}, nil
 		}
-		return downloadResult{path: fullPath}, nil
 	}
 	resp, err := fetcher.FetchToFile(assetURL, maxBytes, baseDir, fullPath)
 	if err != nil {
 		return downloadResult{}, err
 	}
 	if !resp.OK {
-		return downloadResult{}, fmt.Errorf("http %d", resp.Status)
+		return downloadResult{}, &HTTPStatusError{Status: resp.Status}
 	}
 	dl := downloadResult{path: fullPath, size: resp.Size, contentType: resp.ContentType}
-	if isCSS(fullPath, resp.ContentType) {
+	if assetKind(fullPath, resp.ContentType) != "" {
 		if body, err := readOutputFile(baseDir, fullPath); err == nil {
 			dl.body = body
 		}
@@ -679,7 +1121,7 @@ func absoluteURL(base, ref string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	refParsed, err := url.Parse(ref)
+	refParsed, err := url.Parse(strings.TrimSpace(ref))
 	if err != nil {
 		return "", err
 	}
@@ -688,3 +1130,16 @@ func absoluteURL(base, ref string) (string, error) {
 
 // ErrInvalidURL is returned when the user passes a malformed URL.
 var ErrInvalidURL = errors.New("invalid url")
+
+// setRawText replaces an element's content with one raw text node.
+// goquery's SetText would HTML-escape it, which breaks <script> contents.
+func setRawText(s *goquery.Selection, text string) {
+	for _, n := range s.Nodes {
+		for c := n.FirstChild; c != nil; {
+			next := c.NextSibling
+			n.RemoveChild(c)
+			c = next
+		}
+		n.AppendChild(&html.Node{Type: html.TextNode, Data: text})
+	}
+}
