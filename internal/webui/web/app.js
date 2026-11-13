@@ -778,6 +778,9 @@ async function finishRun(summary, immediate) {
         errors: summary.Errors || 0,
         skipped: summary.SkippedExternal || 0,
         skippedHosts: summary.SkippedExternalHosts || [],
+        trackers: summary.SkippedTrackers || 0,
+        trackerHosts: summary.SkippedTrackerHosts || [],
+        failedFiles: summary.FailedFiles || [],
         needsServer: !!summary.NeedsServer,
         engine: summary.Engine || '',
         updating: !!run.updating,
@@ -797,7 +800,7 @@ async function finishRun(summary, immediate) {
     let status = 'completed';
     if (data.failed) status = 'error';
     else if (data.cancelled) status = 'cancelled';
-    else if (data.errors > 0 || data.skipped > 0) status = 'warn';
+    else if (data.errors > 0 || data.skipped > 0) status = 'warn'; // trackers alone are fine
     if (!immediate || run.historyId) {
         await upsertHistory({
             // A failed start leaves no folder (or one that belongs to an older
@@ -868,13 +871,56 @@ function renderFinished(d) {
     }) + (d.engine ? ' ' + tt('summary.engine', { engine: d.engine }) : ''), d.cancelled ? 'info' : 'ok');
     if (d.updating) note(tt('warn.updated'), 'info');
     if (d.needsServer) note(tt('warn.server'), 'info');
-    if (d.errors > 0) note(tt('warn.errors', { errors: plural('errors', d.errors) }), 'warn');
-    if (d.skipped > 0) {
-        const hosts = d.skippedHosts.slice(0, 3).join(', ') + (d.skippedHosts.length > 3 ? ', …' : '');
-        note(tt('warn.cdn', { n: formatNumber(d.skipped), hosts }), 'warn');
-    }
+    if (d.errors > 0) notes.appendChild(failedNote(d));
+    const hostList = hosts => hosts.slice(0, 3).join(', ') + (hosts.length > 3 ? ', …' : '');
+    if (d.skipped > 0) note(tt('warn.cdn', { n: formatNumber(d.skipped), refs: plural('refs', d.skipped), hosts: hostList(d.skippedHosts) }), 'warn');
+    if (d.trackers > 0) note(tt('info.trackers', { n: formatNumber(d.trackers), refs: plural('refs', d.trackers), hosts: hostList(d.trackerHosts) }), 'info');
     notes.hidden = false;
     $('finishActions').hidden = false;
+}
+
+// failedNote is the warning about failed files, expandable to a list of
+// the first ones with a short reason.
+function failedNote(d) {
+    const li = document.createElement('li');
+    li.className = 'warn';
+    const text = tt('warn.errors', { errors: plural('errors', d.errors) });
+    if (!d.failedFiles || !d.failedFiles.length) {
+        li.textContent = text;
+        return li;
+    }
+    const det = document.createElement('details');
+    const sum = document.createElement('summary');
+    sum.textContent = tt('warn.errorsShort', { errors: plural('errors', d.errors) });
+    const list = document.createElement('ul');
+    list.className = 'failed-list';
+    for (const f of d.failedFiles) {
+        const row = document.createElement('li');
+        const reason = document.createElement('span');
+        reason.className = 'reason';
+        reason.textContent = failReason(f.Kind, f.Status);
+        const url = document.createElement('span');
+        url.className = 'url';
+        url.textContent = shortURL(f.URL);
+        url.title = f.URL;
+        row.append(reason, url);
+        list.appendChild(row);
+    }
+    det.append(sum, list);
+    if (d.errors > d.failedFiles.length) {
+        const more = document.createElement('div');
+        more.className = 'hint';
+        more.textContent = tt('warn.errorsMore', { n: formatNumber(d.errors - d.failedFiles.length) });
+        det.appendChild(more);
+    }
+    li.appendChild(det);
+    return li;
+}
+
+// failReason is a short label for one failed file.
+function failReason(kind, status) {
+    if (kind === 'http') return tt('reason.http' + status, null, tt('reason.http', { status }));
+    return tt('reason.' + (kind || 'other'), null, tt('reason.other'));
 }
 
 function setCurrentFile(u) {
@@ -917,33 +963,51 @@ function showPathEnd() {
     const input = outputDirInput;
     const display = $('outputDirDisplay');
     input.title = input.value;
-    requestAnimationFrame(() => {
+    // setTimeout, not requestAnimationFrame: rAF is paused while the window
+    // is hidden or occluded, which left a stale (too short) text behind.
+    clearTimeout(showPathEnd.timer);
+    showPathEnd.timer = setTimeout(() => {
+        // The overlay is always laid out (only made invisible), so its own
+        // box is the exact space available for the text.
         const cs = getComputedStyle(input);
-        const width = display.clientWidth || (input.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight));
-        const text = pathTail(input.value, width, cs.font);
+        const width = display.getBoundingClientRect().width;
+        const text = width > 0 ? pathTail(input.value, width - 2, cs.font) : input.value;
         display.textContent = text;
-        input.classList.toggle('path-short', text !== input.value);
-        display.hidden = text === input.value;
-    });
+        const short = text !== input.value;
+        input.classList.toggle('path-short', short);
+        display.classList.toggle('active', short);
+    }, 0);
 }
 
 let measureCtx = null;
-// pathTail returns path, or "…" + the longest ending that fits in width
-// pixels, cut at a folder separator when possible.
+// pathTail fits path into width pixels: the whole path, or "…" plus the
+// longest ending that starts at a folder separator. The last folder name is
+// always kept whole if it fits ("…\\WebDownloader"); if not, it is shortened
+// in the middle ("…\\WebDow…der") instead of leaving a stub.
 function pathTail(path, width, font) {
     if (!path || width <= 0) return path || '';
     measureCtx = measureCtx || document.createElement('canvas').getContext('2d');
     measureCtx.font = font;
-    const fits = t => measureCtx.measureText(t).width <= width;
+    return fitPath(path, t => measureCtx.measureText(t).width <= width);
+}
+
+function fitPath(path, fits) {
     if (fits(path)) return path;
-    for (let i = 1; i < path.length; i++) {
-        if (path[i] !== '\\' && path[i] !== '/') continue;
-        if (fits('…' + path.slice(i))) return '…' + path.slice(i);
+    const trimmed = path.replace(/[\\/]+$/, '');
+    const cut = Math.max(trimmed.lastIndexOf('\\'), trimmed.lastIndexOf('/'));
+    for (let i = 1; i <= cut; i++) {
+        const c = trimmed[i];
+        if ((c === '\\' || c === '/') && fits('…' + trimmed.slice(i))) return '…' + trimmed.slice(i);
     }
-    for (let i = 1; i < path.length; i++) {
-        if (fits('…' + path.slice(i))) return '…' + path.slice(i);
+    const sep = cut >= 0 ? trimmed[cut] : '';
+    const last = trimmed.slice(cut + 1);
+    const prefix = cut >= 0 ? '…' + sep : '';
+    for (let keep = last.length - 1; keep >= 2; keep--) {
+        const head = Math.ceil(keep * 0.6);
+        const candidate = prefix + last.slice(0, head) + '…' + last.slice(last.length - (keep - head));
+        if (fits(candidate)) return candidate;
     }
-    return '…';
+    return prefix + last.slice(0, 1) + '…';
 }
 
 function lastPct() { return run && run.pct !== undefined ? run.pct : null; }
@@ -1037,6 +1101,16 @@ outputDirInput.addEventListener('blur', showPathEnd);
 outputDirInput.addEventListener('input', showPathEnd);
 outputDirInput.addEventListener('change', showPathEnd);
 window.addEventListener('resize', showPathEnd);
+// Re-measure once web fonts are in and whenever the field changes size
+// (window resize, one/two-column switch).
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(showPathEnd);
+if (window.ResizeObserver) {
+    const ro = new ResizeObserver(() => showPathEnd());
+    ro.observe(outputDirInput);
+    ro.observe($('outputDirDisplay'));
+}
+window.addEventListener('focus', showPathEnd);
+document.addEventListener('visibilitychange', showPathEnd);
 
 $('language').addEventListener('change', e => {
     currentLang = e.target.value;
@@ -1082,6 +1156,9 @@ async function init() {
         try { outputDirInput.value = await window.api_defaultOutputPath(''); } catch (_) {}
     }
     showPathEnd();
+    // Layout can still settle after start-up (window size, fonts).
+    setTimeout(showPathEnd, 300);
+    setTimeout(showPathEnd, 1500);
     applyTranslations();
     await initHistory();
     urlInput.focus();
