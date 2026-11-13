@@ -478,6 +478,25 @@ loop:
 		}
 		c.pagesDone.Add(1)
 
+		// Queue the links first, so progress knows what is left while the
+		// attachments (possibly large) download.
+		if item.Depth+1 < opts.MaxDepth {
+			enqueue := func(link string, speculative bool) {
+				if _, ok := queued[link]; ok {
+					return
+				}
+				queued[link] = struct{}{}
+				queue = append(queue, queueItem{URL: link, Depth: item.Depth + 1, Speculative: speculative})
+			}
+			for _, link := range links {
+				enqueue(link, false)
+			}
+			for _, link := range c.discoveredPages {
+				enqueue(link, true)
+			}
+		}
+		c.queueLen.Store(int64(len(queue)))
+
 		if opts.DownloadAll {
 			for _, attURL := range attachments {
 				if err := opts.Pause.Wait(c.ctx); err != nil {
@@ -503,21 +522,6 @@ loop:
 			}
 		}
 
-		if item.Depth+1 < opts.MaxDepth {
-			enqueue := func(link string, speculative bool) {
-				if _, ok := queued[link]; ok {
-					return
-				}
-				queued[link] = struct{}{}
-				queue = append(queue, queueItem{URL: link, Depth: item.Depth + 1, Speculative: speculative})
-			}
-			for _, link := range links {
-				enqueue(link, false)
-			}
-			for _, link := range c.discoveredPages {
-				enqueue(link, true)
-			}
-		}
 		emit(item, "done")
 		log.Printf("[PROGRESS] pages=%d assets=%d attachments=%d bytes=%d queued=%d",
 			c.pagesDone.Load(), c.assetsN.Load(), c.attachments.Load(), c.totalBytes.Load(), len(queue))

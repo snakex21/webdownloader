@@ -3,6 +3,7 @@ package downloader
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -179,5 +180,32 @@ func TestProgressTickerDuringSlowFile(t *testing.T) {
 	}
 	if !sawCurrent.Load() {
 		t.Error("ticker never reported the file being downloaded")
+	}
+}
+
+// 404 answers must not cost a new connection each (port exhaustion on
+// crawls with many misses).
+func TestErrorResponsesReuseConnection(t *testing.T) {
+	var conns atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, strings.Repeat("not found ", 200), http.StatusNotFound)
+	}))
+	srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+		if s == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	srv.Start()
+	defer srv.Close()
+	f := NewFetcherWithContext(context.Background(), 0)
+	out := t.TempDir()
+	for i := 0; i < 10; i++ {
+		resp, err := f.FetchToFile(fmt.Sprintf("%s/missing%d.png", srv.URL, i), 0, out, filepath.Join(out, fmt.Sprintf("m%d.png", i)))
+		if err != nil || resp.OK {
+			t.Fatalf("request %d: resp=%+v err=%v", i, resp, err)
+		}
+	}
+	if n := conns.Load(); n > 2 {
+		t.Errorf("10 error responses used %d connections, want 1", n)
 	}
 }
