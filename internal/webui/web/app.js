@@ -307,6 +307,7 @@ let currentDownloadId = null;
 let currentHistoryId = null;
 let resumeHistoryId = null;
 let resumeBaselinePending = null;
+let resumeOutputPending = null;
 let currentBaseline = { pages: 0, assets: 0, attachments: 0, bytes: 0 };
 let isPaused = false;
 let downloadQueue = [];
@@ -411,11 +412,26 @@ async function initHistory() {
         }
         return item;
     });
+    // Older versions stored the session cookie in history; drop it.
+    downloadHistory = downloadHistory.map(item => {
+        if (item && item.request && item.request.cookie) {
+            changed = true;
+            return { ...item, request: historyRequest(item.request) };
+        }
+        return item;
+    });
     const beforeDedup = downloadHistory.length;
     downloadHistory = dedupeHistory(downloadHistory).slice(0, 20);
     if (downloadHistory.length !== beforeDedup) changed = true;
     if (changed) await persistHistory();
     renderHistory();
+}
+
+// historyRequest is what gets persisted for "resume": never the session
+// cookie (a secret) nor the one-shot resume target.
+function historyRequest(request) {
+    const { cookie, resumeOutput, ...rest } = request || {};
+    return rest;
 }
 
 function historyKey(item) {
@@ -490,10 +506,18 @@ function renderHistory() {
         const meta = document.createElement('div');
         meta.className = 'history-meta';
         const when = item.finishedAt || item.startedAt || '';
-        meta.innerHTML = '<span class="history-status">' + statusLabel(item.status) + '</span>' +
+        // Built with text nodes: history comes from prefs.json, not trusted HTML.
+        const statusSpan = document.createElement('span');
+        statusSpan.className = 'history-status';
+        statusSpan.textContent = statusLabel(item.status);
+        meta.append(
+            statusSpan,
             (when ? new Date(when).toLocaleString() + ' · ' : '') +
             (item.pages ?? 0) + ' ' + tt('stat.pages', 'stron') + ' · ' + (item.assets ?? 0) + ' ' + tt('stat.assets', 'assetów') + ' · ' +
-            formatBytes(item.bytes || 0) + '<br>' + (item.output || '');
+            formatBytes(item.bytes || 0),
+            document.createElement('br'),
+            String(item.output || ''),
+        );
         row.appendChild(meta);
 
         const actions = document.createElement('div');
@@ -609,6 +633,7 @@ function resumeHistoryItem(item) {
         return;
     }
     resumeHistoryId = item.id;
+    resumeOutputPending = item.output || null;
     resumeBaselinePending = {
         pages: Number(item.pages || 0),
         assets: Number(item.assets || 0),
@@ -836,6 +861,8 @@ form.addEventListener('submit', async (e) => {
     progressText.textContent = '';
 
     const request = buildCurrentRequest();
+    if (resumeOutputPending) request.resumeOutput = resumeOutputPending;
+    resumeOutputPending = null;
 
     try {
         const result = await window.api_download(JSON.stringify(request));
@@ -863,7 +890,7 @@ form.addEventListener('submit', async (e) => {
             output: result.output,
             outputBase: request.outputDir,
             indexPath: localIndexPath(result.output),
-            request: request,
+            request: historyRequest(request),
             status: 'downloading',
             startedAt: new Date().toISOString(),
             pages: currentBaseline.pages || 0,
