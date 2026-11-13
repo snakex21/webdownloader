@@ -152,3 +152,29 @@ func TestDownloadCancelDuringAttachmentLeavesNoPartialFile(t *testing.T) {
 		t.Errorf("user cancellation logged as an error: %s", logData)
 	}
 }
+
+func TestDownloadDepthMatchesUILabels(t *testing.T) {
+	mux := http.NewServeMux()
+	page := func(body string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/html")
+			w.Write([]byte(body))
+		}
+	}
+	mux.HandleFunc("/{$}", page(`<a href="/child.html">child</a>`))
+	mux.HandleFunc("/child.html", page(`<a href="/grandchild.html">grandchild</a>`))
+	mux.HandleFunc("/grandchild.html", page(`leaf`))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	// UI: "1 - Main page only", "2 - Main + subpages", "3 - Main + 2 levels".
+	for depth, wantPages := range map[int]int{1: 1, 2: 2, 3: 3} {
+		summary, err := Download(Options{URL: srv.URL + "/", OutputDir: t.TempDir(), MaxDepth: depth}, Events{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if summary.Pages != wantPages {
+			t.Errorf("MaxDepth %d saved %d pages, want %d", depth, summary.Pages, wantPages)
+		}
+	}
+}

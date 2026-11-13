@@ -73,7 +73,7 @@ func TestDownload_MaxBytesStops(t *testing.T) {
 	summary, err := Download(Options{
 		URL:           srv.URL + "/",
 		OutputDir:     tmp,
-		MaxDepth:      1,
+		MaxDepth:      2,
 		MaxTotalBytes: 60_000,
 	}, Events{})
 	if err != nil {

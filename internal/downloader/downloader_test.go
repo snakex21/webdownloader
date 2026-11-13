@@ -67,7 +67,7 @@ func TestDownload_Smoke(t *testing.T) {
 	summary, err := Download(Options{
 		URL:         srv.URL + "/",
 		OutputDir:   hostDir,
-		MaxDepth:    1,
+		MaxDepth:    2,
 		DownloadAll: true,
 	}, Events{
 		OnPage:     func(PageEvent) { progressEvents++ },

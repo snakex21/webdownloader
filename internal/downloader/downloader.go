@@ -67,7 +67,9 @@ type Options struct {
 	Pause     *PauseController
 	URL       string
 	OutputDir string
-	MaxDepth  int
+	// MaxDepth is the number of page levels to save: 1 = the start page
+	// only, 2 = start page + pages it links to, and so on (as in the UI).
+	MaxDepth int
 	// Mode selects the fetcher: "http" (default) or "browser".
 	Mode Mode
 	// DownloadAll enables attachment downloads (PDF/ZIP/DOC/...).
@@ -277,7 +279,7 @@ loop:
 		if _, ok := visited[item.URL]; ok {
 			continue
 		}
-		if item.Depth > opts.MaxDepth {
+		if item.Depth >= opts.MaxDepth {
 			continue
 		}
 		visited[item.URL] = struct{}{}
@@ -352,7 +354,7 @@ loop:
 		log.Printf("[PROGRESS] Strony: %d, Assety: %d, Zalaczniki: %d, Bajty: %d",
 			pageCount, assetCount, attachmentCount, totalBytes.Load())
 
-		if item.Depth < opts.MaxDepth {
+		if item.Depth+1 < opts.MaxDepth {
 			for _, link := range links {
 				if _, ok := visited[link]; ok {
 					continue
