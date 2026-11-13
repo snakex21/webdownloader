@@ -88,7 +88,8 @@ legend.field-label { padding: 0; }
 .form-group { margin-bottom: 14px; min-width: 0; }
 .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: end; }
-@media (max-width: 640px) { .grid-2, .grid-3 { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+.grid-2.depth-folder { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+@media (max-width: 640px) { .grid-2, .grid-2.depth-folder, .grid-3 { grid-template-columns: minmax(0, 1fr); gap: 0; } }
 
 .input-wrapper { position: relative; min-width: 0; }
 .input-wrapper > i {
@@ -115,8 +116,10 @@ legend.field-label { padding: 0; }
     white-space: nowrap; overflow: hidden; pointer-events: none;
     color: var(--text-primary); font-size: 14px;
 }
+.path-display { visibility: hidden; }
+.path-display.active { visibility: visible; }
 .input-wrapper input.path-short:not(:focus) { color: transparent; }
-.input-wrapper input:focus ~ .path-display { display: none; }
+.input-wrapper input:focus ~ .path-display { visibility: hidden; }
 .input-wrapper input[aria-invalid="true"] { border-color: var(--error); }
 .input-wrapper input:disabled, .input-wrapper select:disabled { opacity: .55; cursor: not-allowed; }
 
@@ -262,6 +265,13 @@ legend.field-label { padding: 0; }
 .notes li.ok::before { content: "\f00c"; color: var(--success); }
 .notes li.warn { background: rgba(255, 171, 0, 0.08); }
 .notes li.warn::before { content: "\f071"; color: var(--warning); }
+.notes details summary { cursor: pointer; }
+.notes details[open] summary { margin-bottom: 6px; }
+.failed-list { list-style: none; display: grid; gap: 4px; max-height: 220px; overflow-y: auto; }
+.failed-list li { padding: 0 !important; background: none !important; display: flex; gap: 8px; min-width: 0; }
+.failed-list li::before { content: none !important; }
+.failed-list .reason { flex-shrink: 0; color: var(--warning); font-variant-numeric: tabular-nums; min-width: 9em; }
+.failed-list .url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, monospace; font-size: 12px; color: var(--text-secondary); }
 
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
 .stat { background: var(--bg-tertiary); border-radius: 10px; padding: 10px; text-align: center; min-width: 0; }
