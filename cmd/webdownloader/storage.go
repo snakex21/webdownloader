@@ -30,6 +30,11 @@ func configureStorage(portable bool) error {
 	if portable {
 		paths.dataDir = executableDir
 		paths.outputDir = filepath.Join(executableDir, "output")
+		// Keep the WebView2 browser profile next to the exe too (read by
+		// the patched webview_go in third_party/).
+		if err := os.Setenv("WEBVIEW_GO_USER_DATA_FOLDER", filepath.Join(executableDir, "webview2-profile")); err != nil {
+			return fmt.Errorf("set WebView2 profile folder: %w", err)
+		}
 	} else {
 		localDataDir, err := os.UserCacheDir()
 		if err != nil {
