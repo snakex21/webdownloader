@@ -14,16 +14,18 @@ import (
 
 func (a *api) pickFolder() string {
 	if runtime.GOOS == "windows" {
-		if path, err := pickFolderWindows(uintptr(a.w.Window())); err == nil && path != "" {
-			return path
-		}
+		path, _ := pickFolderWindows(uintptr(a.w.Window()))
+		// "" means the dialog was cancelled; the UI keeps the current folder.
+		return path
 	}
-	return a.defaultOutputPath("")
+	return ""
 }
 
 func (a *api) openFolder(path string) error {
-	if path == "" {
-		return fmt.Errorf("empty path")
+	// explorer/open/xdg-open would *run* a file passed here, and the path
+	// comes from frontend-controlled history, so only accept directories.
+	if info, err := os.Stat(path); err != nil || !info.IsDir() {
+		return fmt.Errorf("not a directory: %q", path)
 	}
 
 	var command *exec.Cmd
@@ -38,9 +40,26 @@ func (a *api) openFolder(path string) error {
 	return command.Start()
 }
 
+// openableExtensions are the only files the UI needs to open (the saved
+// index page and reports). Anything else (.exe, .lnk, .bat, URLs) is refused
+// because the shell handler would execute it.
+var openableExtensions = map[string]struct{}{
+	".html": {}, ".htm": {}, ".json": {}, ".log": {}, ".txt": {},
+}
+
+func validateOpenFile(path string) error {
+	if _, ok := openableExtensions[strings.ToLower(filepath.Ext(path))]; !ok {
+		return fmt.Errorf("refusing to open %q", path)
+	}
+	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+		return fmt.Errorf("not a regular file: %q", path)
+	}
+	return nil
+}
+
 func (a *api) openFile(path string) error {
-	if path == "" {
-		return fmt.Errorf("empty path")
+	if err := validateOpenFile(path); err != nil {
+		return err
 	}
 
 	var command *exec.Cmd
@@ -112,7 +131,30 @@ func validateDeleteTarget(path string, prefs map[string]any) (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("target is not a directory")
 	}
+	// History lives in a file the frontend can rewrite, so also require
+	// the folder to look like something Download produced.
+	if !looksLikeDownloadDir(target) && !isEmptyDir(target) {
+		return "", fmt.Errorf("folder does not look like a WebDownloader output")
+	}
 	return target, nil
+}
+
+// downloadMarkers are files Download creates in every output folder
+// (the error log is opened at the start of a run, the report at the end).
+var downloadMarkers = []string{"download-errors.log", "download-report.json"}
+
+func looksLikeDownloadDir(dir string) bool {
+	for _, marker := range downloadMarkers {
+		if info, err := os.Lstat(filepath.Join(dir, marker)); err == nil && info.Mode().IsRegular() {
+			return true
+		}
+	}
+	return false
+}
+
+func isEmptyDir(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	return err == nil && len(entries) == 0
 }
 
 func historyContainsOutput(prefs map[string]any, target string) bool {

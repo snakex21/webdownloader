@@ -18,6 +18,9 @@ func TestDeleteFolderRemovesRecordedDownloadDirectly(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(target, "index.html"), []byte("test"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(target, "download-report.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	appStorage.prefsFile = filepath.Join(baseDir, "prefs.json")
 	prefs := map[string]any{
