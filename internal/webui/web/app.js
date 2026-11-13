@@ -251,7 +251,7 @@ function applyOptions(o) {
     if (typeof o.url === 'string') urlInput.value = o.url;
     if (o.depth) $('depth').value = String(o.depth);
     if (typeof o.downloadAll === 'boolean') $('downloadAll').checked = o.downloadAll;
-    if (o.outputDir) outputDirInput.value = o.outputDir;
+    if (o.outputDir) { outputDirInput.value = o.outputDir; showPathEnd(); }
     setMode(o.mode || 'http');
     if (typeof o.engine === 'string') $('engine').value = o.engine;
     if (o.existing) $('existing').value = o.existing;
@@ -360,14 +360,11 @@ const statusIcons = { completed: 'check', warn: 'exclamation-triangle', error: '
 function renderHistory() {
     historyList.replaceChildren();
     if (!downloadHistory.length) {
-        const li = document.createElement('li');
-        li.className = 'history-empty';
-        li.textContent = tt('historyEmpty');
-        historyList.appendChild(li);
+        historyList.appendChild(emptyHistory());
         $('clearHistoryBtn').disabled = true;
         return;
     }
-    $('clearHistoryBtn').disabled = false;
+    $('clearHistoryBtn').disabled = isRunning();
     for (const item of downloadHistory) historyList.appendChild(historyRow(item));
 }
 
@@ -486,7 +483,12 @@ async function startPreview(output, startFile) {
 function setBusy(busy) {
     $('downloadBtn').disabled = busy;
     $('runControls').hidden = !busy;
+    $('cancelBtn').disabled = false;
+    $('pauseBtn').disabled = false;
+    $('clearHistoryBtn').disabled = busy || !downloadHistory.length;
 }
+
+function isRunning() { return !!(run && !run.finished); }
 
 function setStatus(state, title) {
     const icons = { downloading: 'spinner fa-spin', starting: 'spinner fa-spin', success: 'check', warn: 'exclamation-triangle', error: 'times', cancelled: 'ban', paused: 'pause' };
@@ -612,6 +614,7 @@ async function startDownload(resume, queuedRequest) {
     }
     run.id = result.id;
     run.output = result.output;
+    if (run.cancelling) { run.cancelling = false; requestCancel(); }
     run.startFile = result.startFile || joinPath(result.output, 'index.html');
     run.updating = !!result.updating;
     run.historyId = run.historyId || result.id;
@@ -644,18 +647,22 @@ function updateMetrics() {
     $('metricElapsed').textContent = formatDuration(elapsed);
     // Speed over the last ~5 s of samples.
     const now = Date.now();
-    run.samples.push({ t: now, b: run.bytes });
+    // Network bytes (also of files still downloading), not only saved ones.
+    run.samples.push({ t: now, b: Math.max(run.transferred || 0, run.bytes) });
     while (run.samples.length > 1 && now - run.samples[0].t > 5000) run.samples.shift();
     const first = run.samples[0];
     if (!run.paused && run.samples.length > 1 && now > first.t) {
-        const bps = (run.bytes - first.b) / ((now - first.t) / 1000);
+        const last = run.samples[run.samples.length - 1];
+        const bps = (last.b - first.b) / ((now - first.t) / 1000);
         $('metricSpeed').textContent = bps > 0 ? formatBytes(bps) + '/s' : '–';
     } else if (run.paused) {
         $('metricSpeed').textContent = '–';
     }
-    // ETA once the estimate is meaningful.
-    if (run.pct !== undefined && run.pct >= 5 && run.pct < 100 && elapsed > 4000 && !run.paused) {
-        $('metricEta').textContent = '~' + formatDuration(elapsed * (100 - run.pct) / run.pct);
+    // ETA from the share of pages done (or of the size limit), once there
+    // is a rate: elapsed time scaled by what is left.
+    const frac = run.frac || 0;
+    if (frac > 0 && frac < 1 && run.queued > 0 && elapsed > 5000 && !run.paused) {
+        $('metricEta').textContent = '~' + formatDuration(elapsed * (1 - frac) / frac);
     } else {
         $('metricEta').textContent = '–';
     }
@@ -677,8 +684,10 @@ listeners.progress.push(evt => {
     run.assets = Math.max(run.assets, b.assets + (d.Assets || 0));
     run.attachments = Math.max(run.attachments, b.attachments + (d.Attachments || 0));
     run.bytes = Math.max(run.bytes, b.bytes + (d.Bytes || 0));
+    run.transferred = Math.max(run.transferred || 0, d.Transferred || 0);
     updateCounters();
     $('metricQueue').textContent = formatNumber(d.Queued || 0);
+    if (d.Current) setCurrentFile(d.Current);
 
     // Progress: pages done vs. done + queued (or the page/size limit).
     const done = d.Pages || 0;
@@ -690,7 +699,14 @@ listeners.progress.push(evt => {
     else if (total > 0 && (done > 0 || d.Queued > 0)) pct = Math.floor(done / total * 100);
     if (maxPages > 0) pct = Math.max(pct || 0, Math.floor(done / maxPages * 100));
     if (maxBytes > 0) pct = Math.max(pct || 0, Math.floor((d.Bytes || 0) / maxBytes * 100));
-    if (pct !== null) {
+    run.queued = d.Queued || 0;
+    if (total > 0 && done > 0) run.frac = Math.min(0.99, done / total);
+    if (done > 0 && !d.Queued && d.Status !== 'downloading' && !maxBytes) {
+        // All pages are saved; files (attachments) are still coming.
+        run.pct = 99;
+        run.frac = undefined;
+        setProgress(99, tt('progress.finishing'));
+    } else if (pct !== null) {
         pct = Math.min(99, pct);
         run.pct = pct;
         setProgress(pct, tt('progress.label', { pct, done: formatNumber(done), total: formatNumber(Math.max(total, done)) }));
@@ -698,8 +714,7 @@ listeners.progress.push(evt => {
 
     if (d.URL) {
         if (d.Status === 'downloading') {
-            $('currentFile').textContent = shortURL(d.URL);
-            $('currentFile').title = d.URL;
+            setCurrentFile(d.URL);
             addLog(tt('log.downloading') + ' ' + d.URL, '');
         } else if (d.Status === 'done') {
             addLog(tt('log.downloaded') + ' ' + d.URL, 'success');
@@ -720,8 +735,7 @@ listeners.asset.push(evt => {
     if (!run || evt.id !== run.id) return;
     const d = evt.payload || {};
     const attachment = d.kind === 'attachment';
-    $('currentFile').textContent = shortURL(d.url);
-    $('currentFile').title = d.url;
+    setCurrentFile(d.url);
     addLog(tt(attachment ? 'log.attachment' : 'log.asset') + ' ' + d.url, '');
 });
 
@@ -747,7 +761,7 @@ function errorMessage(kind, status) {
 }
 
 async function finishRun(summary, immediate) {
-    if (!run) return;
+    if (!run || run.finished) return;
     run.finished = true;
     clearInterval(run.timer);
     setBusy(false);
@@ -863,6 +877,48 @@ function renderFinished(d) {
     $('finishActions').hidden = false;
 }
 
+function setCurrentFile(u) {
+    $('currentFile').textContent = shortURL(u);
+    $('currentFile').title = u;
+}
+
+// emptyHistory is the first-run panel: what to do, in three steps.
+function emptyHistory() {
+    const li = document.createElement('li');
+    li.className = 'history-empty';
+    const lead = document.createElement('p');
+    lead.className = 'empty-lead';
+    lead.textContent = tt('historyEmpty');
+    const title = document.createElement('h3');
+    title.textContent = tt('howto.title');
+    const steps = document.createElement('ol');
+    steps.className = 'howto';
+    for (const [icon, key] of [['link', 'howto.1'], ['layer-group', 'howto.2'], ['play-circle', 'howto.3']]) {
+        const step = document.createElement('li');
+        const i = document.createElement('i');
+        i.className = 'fas fa-' + icon;
+        i.setAttribute('aria-hidden', 'true');
+        step.append(i, document.createTextNode(tt(key)));
+        steps.appendChild(step);
+    }
+    const tip = document.createElement('p');
+    tip.className = 'empty-tip';
+    const bulb = document.createElement('i');
+    bulb.className = 'fas fa-lightbulb';
+    bulb.setAttribute('aria-hidden', 'true');
+    tip.append(bulb, document.createTextNode(tt('howto.tip')));
+    li.append(lead, title, steps, tip);
+    return li;
+}
+
+// showPathEnd keeps the end of a long folder path visible (the folder name
+// matters more than the drive) and puts the full path in the tooltip.
+function showPathEnd() {
+    const input = outputDirInput;
+    input.title = input.value;
+    if (document.activeElement !== input) requestAnimationFrame(() => { input.scrollLeft = input.scrollWidth; });
+}
+
 function lastPct() { return run && run.pct !== undefined ? run.pct : null; }
 
 $('retryBtn').addEventListener('click', () => {
@@ -876,14 +932,27 @@ $('openPageBtn').addEventListener('click', () => lastFinished && openFile(lastFi
 $('openFolderBtn').addEventListener('click', () => lastFinished && openFolder(lastFinished.output));
 $('openReportBtn').addEventListener('click', () => lastFinished && openFile(lastFinished.reportPath || joinPath(lastFinished.output, 'download-report.json')));
 
-$('cancelBtn').addEventListener('click', async () => {
-    if (!run || !run.id || run.finished) return;
-    $('cancelBtn').disabled = true;
+$('cancelBtn').addEventListener('click', () => requestCancel());
+
+// requestCancel stops the run. The UI switches to "Cancelling..." at once;
+// the backend confirms with a "complete" event (it forces one itself after
+// 2 s) and, as a last resort, the UI finishes the run on its own.
+async function requestCancel() {
+    if (!run || run.finished || run.cancelling) return;
+    run.cancelling = true;
     downloadQueue = [];
-    try { await window.api_cancel(run.id); } catch (e) { console.error(e); }
-    $('cancelBtn').disabled = false;
-    // The backend still sends "complete" (Cancelled) once the run stops.
-});
+    $('cancelBtn').disabled = true;
+    $('pauseBtn').disabled = true;
+    setStatus('cancelled', tt('statusTitle.cancelling'));
+    addLog(tt('log.cancelling'), 'error');
+    if (!run.id) return; // still starting: cancelled as soon as the id arrives
+    const id = run.id;
+    let accepted = '';
+    try { accepted = await window.api_cancel(id); } catch (e) { console.error(e); }
+    setTimeout(() => {
+        if (run && run.id === id && !run.finished) finishRun({ Cancelled: true }, false);
+    }, accepted ? 4000 : 0);
+}
 
 $('pauseBtn').addEventListener('click', async () => {
     if (!run || !run.id || run.finished) return;
@@ -937,6 +1006,10 @@ $('rememberOptions').addEventListener('change', e => {
     if (e.target.checked) saveOptions();
     else window.api_savePrefs(JSON.stringify({ rememberOptions: false })).catch(() => {});
 });
+outputDirInput.addEventListener('blur', showPathEnd);
+outputDirInput.addEventListener('input', () => { outputDirInput.title = outputDirInput.value; });
+window.addEventListener('resize', showPathEnd);
+
 $('language').addEventListener('change', e => {
     currentLang = e.target.value;
     window.api_savePrefs(JSON.stringify({ lang: currentLang })).catch(() => {});
@@ -945,7 +1018,7 @@ $('language').addEventListener('change', e => {
 $('pickFolderBtn').addEventListener('click', async () => {
     try {
         const picked = await window.api_pickFolder();
-        if (picked) { outputDirInput.value = picked; saveOptions(); }
+        if (picked) { outputDirInput.value = picked; showPathEnd(); saveOptions(); }
     } catch (e) { console.error('pick folder failed', e); }
 });
 
@@ -980,6 +1053,7 @@ async function init() {
     if (!outputDirInput.value) {
         try { outputDirInput.value = await window.api_defaultOutputPath(''); } catch (_) {}
     }
+    showPathEnd();
     applyTranslations();
     await initHistory();
     urlInput.focus();

@@ -50,7 +50,7 @@
     "btnFolder": "Folder",
     "historyTitle": "Ostatnio pobrane",
     "btnClearHistory": "Wyczyść historię",
-    "historyEmpty": "Brak historii. Wklej adres strony powyżej i kliknij „Pobierz”.",
+    "historyEmpty": "Nic jeszcze nie pobrano.",
     "log.queued": "Dodano do kolejki: {url} (w kolejce: {n})",
     "log.queueStart": "Start z kolejki: {url} (pozostało: {n})",
     "log.paused": "Wstrzymano.",
@@ -151,7 +151,15 @@
     "log.error": "Błąd:",
     "openFailed": "Nie można otworzyć – plik lub folder nie istnieje.",
     "previewFailed": "Nie udało się uruchomić podglądu: {error}",
-    "previewOpened": "Podgląd offline: {url}"
+    "previewOpened": "Podgląd offline: {url}",
+    "howto.title": "Jak to działa",
+    "howto.1": "Wklej adres strony i kliknij „Pobierz” (albo naciśnij Enter).",
+    "howto.2": "Głębokość 2 zapisuje stronę i podstrony, do których prowadzi. Każdy kolejny poziom to zwykle wielokrotnie więcej stron.",
+    "howto.3": "Po pobraniu kliknij „Podgląd offline”, żeby otworzyć kopię jak prawdziwą stronę.",
+    "howto.tip": "Strona ładuje treść skryptami albo coś jest puste? Wybierz tryb Dokładny w opcjach zaawansowanych.",
+    "statusTitle.cancelling": "Anulowanie…",
+    "log.cancelling": "Anulowanie…",
+    "progress.finishing": "Strony zapisane – kończenie plików…"
   },
   "en": {
     "appTitle": "WebDownloader",
@@ -204,7 +212,7 @@
     "btnFolder": "Folder",
     "historyTitle": "Recent downloads",
     "btnClearHistory": "Clear history",
-    "historyEmpty": "No downloads yet. Paste a website address above and click “Download”.",
+    "historyEmpty": "Nothing downloaded yet.",
     "log.queued": "Added to queue: {url} (queued: {n})",
     "log.queueStart": "Starting from queue: {url} ({n} left)",
     "log.paused": "Paused.",
@@ -297,7 +305,15 @@
     "log.error": "Error:",
     "openFailed": "Cannot open – the file or folder does not exist.",
     "previewFailed": "Could not start the preview: {error}",
-    "previewOpened": "Offline preview: {url}"
+    "previewOpened": "Offline preview: {url}",
+    "howto.title": "How it works",
+    "howto.1": "Paste a website address and click “Download” (or press Enter).",
+    "howto.2": "Depth 2 saves the page and the subpages it links to. Each extra level usually means many times more pages.",
+    "howto.3": "When it is done, click “Offline preview” to open the copy like the real site.",
+    "howto.tip": "Content loaded by scripts, or something missing? Choose the accurate mode in the advanced options.",
+    "statusTitle.cancelling": "Cancelling…",
+    "log.cancelling": "Cancelling…",
+    "progress.finishing": "Pages saved – finishing files…"
   },
   "de": {
     "appTitle": "WebDownloader",
