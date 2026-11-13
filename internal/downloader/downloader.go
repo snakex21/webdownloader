@@ -133,6 +133,12 @@ type Summary struct {
 	FailDetail string
 	// Errors counts failed pages/assets (speculative misses excluded).
 	Errors int
+	// SkippedTrackers counts skipped references to ad, analytics and
+	// consent hosts (normal, harmless offline).
+	SkippedTrackers     int
+	SkippedTrackerHosts []string
+	// FailedFiles lists the first failed pages/files with a reason.
+	FailedFiles []FailedFile
 	// SkippedExternal counts references to other hosts (CDNs) that were
 	// not downloaded because external assets are off.
 	SkippedExternal      int
@@ -226,6 +232,7 @@ type crawler struct {
 
 	skippedExternal map[string]int
 	reportErrors    []map[string]string
+	failedFiles     []FailedFile
 	speculativeMiss int
 	needsServer     bool
 }
@@ -316,6 +323,10 @@ func Download(opts Options, events Events) (Summary, error) {
 	uiOnError := events.OnError
 	c.events.OnError = func(pageURL string, err error) {
 		c.reportErrors = append(c.reportErrors, map[string]string{"url": pageURL, "error": err.Error()})
+		if len(c.failedFiles) < maxFailedListed {
+			kind, status := classifyError(err)
+			c.failedFiles = append(c.failedFiles, FailedFile{URL: pageURL, Kind: kind, Status: status})
+		}
 		uiOnError(pageURL, err)
 		if errLog != nil {
 			line := time.Now().Format(time.RFC3339) + " " + pageURL + " " + err.Error() + "\n"
@@ -330,7 +341,8 @@ func Download(opts Options, events Events) (Summary, error) {
 		summary.Pages = int(c.pagesDone.Load())
 		summary.Attachments = int(c.attachments.Load())
 		summary.Errors = len(c.reportErrors)
-		summary.SkippedExternal, summary.SkippedExternalHosts = c.skippedTotals()
+		summary.SkippedExternal, summary.SkippedExternalHosts, summary.SkippedTrackers, summary.SkippedTrackerHosts = c.skippedTotals()
+		summary.FailedFiles = c.failedFiles
 		summary.NeedsServer = c.needsServer
 		summary.Elapsed = time.Since(started)
 		if summary.Pages > 0 {
@@ -555,18 +567,37 @@ func onlyRunMetadata(dir string) bool {
 	return true
 }
 
-func (c *crawler) skippedTotals() (int, []string) {
-	total := 0
-	hosts := make([]string, 0, len(c.skippedExternal))
+// maxFailedListed is how many failures the result lists by name.
+const maxFailedListed = 20
+
+// FailedFile is one failed page or file, with a classified reason.
+type FailedFile struct {
+	URL    string
+	Kind   string // as Summary.FailKind
+	Status int
+}
+
+// skippedTotals splits skipped external references into content hosts
+// (CDNs - may matter offline) and ad/analytics/consent hosts (harmless).
+func (c *crawler) skippedTotals() (content int, contentHosts []string, trackers int, trackerHosts []string) {
 	for h, n := range c.skippedExternal {
-		total += n
-		hosts = append(hosts, h)
+		if IsTrackerHost(h) {
+			trackers += n
+			trackerHosts = append(trackerHosts, h)
+		} else {
+			content += n
+			contentHosts = append(contentHosts, h)
+		}
 	}
-	sort.Slice(hosts, func(i, j int) bool {
-		return c.skippedExternal[hosts[i]] > c.skippedExternal[hosts[j]] ||
-			(c.skippedExternal[hosts[i]] == c.skippedExternal[hosts[j]] && hosts[i] < hosts[j])
-	})
-	return total, hosts
+	byCount := func(hosts []string) {
+		sort.Slice(hosts, func(i, j int) bool {
+			return c.skippedExternal[hosts[i]] > c.skippedExternal[hosts[j]] ||
+				(c.skippedExternal[hosts[i]] == c.skippedExternal[hosts[j]] && hosts[i] < hosts[j])
+		})
+	}
+	byCount(contentHosts)
+	byCount(trackerHosts)
+	return content, contentHosts, trackers, trackerHosts
 }
 
 func writeReport(path string, opts Options, summary Summary, errs []map[string]string, speculativeMiss int) {
@@ -589,6 +620,8 @@ func writeReport(path string, opts Options, summary Summary, errs []map[string]s
 		"needsServer":          summary.NeedsServer,
 		"skippedExternal":      summary.SkippedExternal,
 		"skippedExternalHosts": summary.SkippedExternalHosts,
+		"skippedTrackers":      summary.SkippedTrackers,
+		"skippedTrackerHosts":  summary.SkippedTrackerHosts,
 		"speculativeMisses":    speculativeMiss,
 		"elapsedSeconds":       summary.Elapsed.Seconds(),
 		"finishedAt":           time.Now().Format(time.RFC3339),
