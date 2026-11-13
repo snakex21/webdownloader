@@ -13,16 +13,26 @@ in Go. No Node.js or Electron is required.
 
 - Recursive page download with configurable depth (1 = start page only,
   2 = start page + pages it links to, … up to 5)
-- Automatic asset downloading (images, CSS, JS, video posters, …)
-- Optional attachment download (PDF, ZIP, DOC, … — 25 extensions)
-- Multi-language UI (30+ languages, auto-detected)
-- Live progress (pages, assets, attachments) and rolling log
-- Native folder picker + "Open output folder" button
-- Fully embedded frontend with no runtime CDN dependencies
-- Confirmed cleanup of downloaded folders from history
+- Two modes: **Fast** (plain HTTP; reads JS modules, import maps and paths in
+  JS/JSON files) and **Accurate** (renders every page in a hidden browser and
+  saves everything it loads) — see [docs/engines.md](docs/engines.md)
+- Accurate mode uses the **WebView2 runtime the app already needs**; Edge or
+  Chrome are only fallbacks
+- **Offline preview**: serves a downloaded site on `127.0.0.1` so ES modules
+  and `fetch()` work (browsers block them on `file://`)
+- Optional attachment download (PDF, ZIP, DOC, MP3, … — off by default)
+- Clear results: a failure is shown as a failure with a plain-language reason
+  and *Try again*; warnings for failed files and skipped CDN hosts
+- Live progress: percentage, speed, elapsed time, ETA, queue, current file
+- Downloading a site again updates the existing copy (or creates `_v2`, by
+  choice)
+- Delete from history moves the folder to the Recycle Bin (size shown first)
 - Resume from history: continues in the same folder and skips files that
   are already complete
-- Single-file portable executable
+- Keyboard and screen-reader friendly controls; 30+ UI languages
+- Fully embedded frontend with no runtime CDN dependencies
+- Single-file portable executable (`--portable` keeps everything, including
+  the WebView2 profile, next to the EXE)
 
 ## Requirements
 
@@ -79,9 +89,30 @@ runs the download engine from the command line without the UI (exit code
 ## Download behaviour
 
 - **Output layout.** Pages are saved as `path/index.html`; assets keep their
-  server path. Query strings are dropped for static files
-  (`logo.png?v=3` → `logo.png`) and kept for dynamic or extension-less URLs
+  server path. Query strings are dropped from static file names
+  (`logo.png?v=3` → `logo.png`; references keep `?v=3`, so an ES module keeps
+  one identity) and kept for dynamic or extension-less URLs
   (`img.php?id=1` → `img__id_1.php`), capped at 64 characters plus a hash.
+- **Fast mode and scripts.** Import maps are parsed (targets downloaded,
+  values rewritten); scripts are scanned for `import … from`, `export … from`,
+  `import()` and `new URL('…', import.meta.url)` (resolved against the script)
+  and for `fetch('…')`, `new Worker('…')` and path-like string literals such
+  as `"wojna_er/index.html"` or `'data/games.json'` (resolved against the
+  page; `.html` ones are crawled as pages). JSON files are scanned for
+  path-like strings too. Paths built at run time (`'themes/' + name + '.css'`,
+  template literals with `${…}`) cannot be found this way — use the accurate
+  mode. Guessed URLs that do not exist are skipped silently (max. 3000).
+- **Accurate mode.** Every page is opened in a hidden browser; all responses
+  (modules, JSON, lazy images, fonts) are saved, links created by scripts are
+  followed, and the original HTML is saved (not the script-modified DOM,
+  which would render twice offline). Partial (206) media bodies are skipped.
+- **Opening offline.** Sites that use ES modules or `fetch()` only work over
+  HTTP: use *Offline preview* (a server on `127.0.0.1` with a random port,
+  only for folders in history). The result says when a site needs it.
+- **External hosts.** CDN files are skipped unless *Download resources from
+  CDNs* is on; the result lists how many references were skipped and where.
+- **Existing copies.** Downloading a site again updates the existing folder
+  (every file is fetched again) unless *Create a new copy* is chosen.
   File names come from the URL, not from `Content-Disposition`, so links in
   the mirror can be rewritten before a file is fetched.
 - **Path safety.** URL paths containing `..`, Windows-reserved names
@@ -101,9 +132,11 @@ runs the download engine from the command line without the UI (exit code
   HTTP 408, 429 and 5xx are retried twice with exponential back-off
   (0.5 s, 1 s), honouring `Retry-After` up to 10 s. Up to 10 redirects are
   followed; a pasted cookie is only sent to the starting origin.
-- **Errors.** Failed pages, assets and attachments are listed in the UI log,
-  `download-errors.log` and `download-report.json` inside the output folder.
-- **Concurrency.** Pages are crawled one at a time, with a 0.5 s pause
+- **Errors.** If the start page cannot be saved the run is reported as
+  failed with a classified reason (HTTP status, DNS, refused, timeout, TLS,
+  missing browser) and no empty folder is left behind. Other failed files
+  are listed in the UI log, `download-errors.log` and `download-report.json`.
+- **Concurrency.** Pages are crawled one at a time, with a 0.25 s pause
   between pages to be polite to the server.
 
 ## Layout
@@ -126,10 +159,16 @@ runs the download engine from the command line without the UI (exit code
 ├── internal/
 │   ├── downloader/
 │   │   ├── fetcher.go       # HTTP client (redirects, UA, timeout)
+│   │   ├── browser.go       # accurate mode: CDP network capture
+│   │   ├── jsrefs.go        # JS / JSON / import map reference scanner
 │   │   ├── html.go          # goquery-based HTML parsing & rewriting
+│   │   ├── css.go           # url() / @import rewriting
 │   │   ├── path.go          # URL → on-disk path mapping and validation
 │   │   ├── storage.go       # atomic, root-confined file writes
+│   │   ├── errors.go        # failure classification for the UI
 │   │   └── downloader.go    # BFS orchestrator + event callbacks
+│   ├── wv2host/             # hidden private WebView2 with a DevTools port
+│   ├── preview/             # offline preview server (127.0.0.1)
 │   ├── locale/
 │   │   └── locale.go        # system UI language detection
 │   └── webui/
@@ -144,7 +183,9 @@ runs the download engine from the command line without the UI (exit code
 │   └── images/              # README and documentation images
 ├── tools/
 │   ├── examples/            # standalone usage examples
+│   ├── enginebench/         # measures a run (time, browser memory, files)
 │   └── i18n/                # translation maintenance scripts
+├── third_party/webview_go/  # webview_go + one-line profile-folder patch
 ├── build.bat                # builds webdownloader.exe
 └── go.mod
 ```
@@ -157,7 +198,11 @@ webdownloader.exe [--debug] [--portable]
 
 - `--debug` — enable the webview DevTools (right-click → Inspect). Useful
   for tweaking the front-end; not needed by end users.
-- `--portable` — store preferences, logs, and downloads next to the EXE.
+- `--portable` — store preferences, logs, downloads and the WebView2
+  browser profile (`webview2-profile\`) next to the EXE.
+
+`WEBDOWNLOADER_BROWSER` (environment) points the Edge/Chrome fallback of the
+accurate mode at a specific browser executable.
 
 ## How it works
 
@@ -168,9 +213,11 @@ webdownloader.exe [--debug] [--portable]
    `api_cancel`, `api_pause`, `api_resume`, `api_pickFolder`,
    `api_openFolder`, `api_openFile`, `api_revealPath`, `api_getLocale`,
    `api_defaultOutputPath`, `api_savePrefs`, `api_loadPrefs`,
-   `api_deleteFolder`, `api_deleteHistoryItem`, `api_i18n`). Paths passed to the
-   open/delete calls are validated in Go (only directories / `.html`,
-   `.json`, `.log` files; only recorded download folders can be deleted).
+   `api_deleteFolder`, `api_deleteHistoryItem`, `api_folderInfo`,
+   `api_startPreview`, `api_engines`, `api_i18n`). Paths passed to the
+   open/delete/preview calls are validated in Go (only directories / `.html`,
+   `.json`, `.log` files; only recorded download folders can be deleted or
+   previewed; a running download cannot be deleted).
 3. `api_download` spawns a goroutine that runs the BFS crawl, emitting
    `progress`, `asset`, `error` and `complete` events back to the UI
    via `webview.Dispatch + Eval`.
