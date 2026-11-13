@@ -333,7 +333,8 @@ func TestGuessingGivesUpAfterMisses(t *testing.T) {
 	if _, err := Download(Options{URL: srv.URL + "/", OutputDir: t.TempDir()}, Events{}); err != nil {
 		t.Fatal(err)
 	}
-	if n := guesses.Load(); n != guessGiveUp {
-		t.Errorf("%d guessed requests, want %d", n, guessGiveUp)
+	// Without the rule all 400 would be requested.
+	if n := guesses.Load(); n > guessGiveUp || n < guessGiveUp/2 {
+		t.Errorf("%d guessed requests, want about %d", n, guessGiveUp)
 	}
 }

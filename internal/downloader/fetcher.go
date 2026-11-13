@@ -175,6 +175,10 @@ func (f *Fetcher) FetchToFile(rawURL string, maxBytes int64, baseDir, fullPath s
 		}
 		defer resp.body.Close()
 		if !resp.result.OK {
+			// Read the (small) error page so the keep-alive connection is
+			// reused; otherwise every 404 costs a new TCP/TLS connection and
+			// a crawl full of misses can run out of local ports.
+			_, _ = io.CopyN(io.Discard, resp.body, 64<<10)
 			return resp.result, resp.retryAfter, nil
 		}
 		src := &trackingReader{r: resp.body, max: maxBytes}
