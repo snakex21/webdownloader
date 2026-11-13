@@ -1,6 +1,8 @@
 package downloader
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/url"
 	"path"
@@ -37,7 +39,7 @@ func FilePathFor(baseDir, rawURL string) (string, error) {
 	}
 
 	if parsed.RawQuery != "" {
-		safeQuery := safeFilename(parsed.RawQuery)
+		safeQuery := queryFilenamePart(parsed.RawQuery)
 		dir, name := filepath.Split(filePath)
 		ext := filepath.Ext(name)
 		base := strings.TrimSuffix(name, ext)
@@ -52,6 +54,11 @@ func FilePathFor(baseDir, rawURL string) (string, error) {
 
 // AssetPathFor returns the on-disk path where an asset (image, css, etc.)
 // should be stored. It mirrors the path the asset has on the server side.
+//
+// The query string is dropped for static files (logo.png?v=3 -> logo.png, so
+// cache-busting versions share one file) but kept for dynamic or
+// extension-less URLs, where it selects different content:
+// image.php?id=1 -> image__id_1.php, image.php?id=2 -> image__id_2.php.
 func AssetPathFor(baseDir, assetURL string) (string, error) {
 	parsed, err := url.Parse(assetURL)
 	if err != nil {
@@ -61,12 +68,40 @@ func AssetPathFor(baseDir, assetURL string) (string, error) {
 		return "", err
 	}
 	p := strings.TrimPrefix(parsed.Path, "/")
-	p = strings.SplitN(p, "?", 2)[0]
-	p = strings.SplitN(p, "#", 2)[0]
-	if p == "" {
-		p = "index"
+	if p == "" || strings.HasSuffix(p, "/") {
+		p += "index"
+	}
+	if parsed.RawQuery != "" && isDynamicAssetPath(p) {
+		dir, name := path.Split(p)
+		ext := path.Ext(name)
+		p = dir + strings.TrimSuffix(name, ext) + "__" + queryFilenamePart(parsed.RawQuery) + ext
 	}
 	return safeJoin(baseDir, p)
+}
+
+var dynamicAssetExts = map[string]struct{}{
+	"": {}, ".php": {}, ".asp": {}, ".aspx": {}, ".ashx": {}, ".axd": {},
+	".jsp": {}, ".cgi": {}, ".pl": {}, ".py": {}, ".do": {},
+}
+
+func isDynamicAssetPath(p string) bool {
+	_, ok := dynamicAssetExts[strings.ToLower(path.Ext(p))]
+	return ok
+}
+
+// maxQueryNameLen keeps query-derived filenames well under Windows'
+// 255-character component limit (and helps with MAX_PATH).
+const maxQueryNameLen = 64
+
+// queryFilenamePart turns a raw query into a filename-safe fragment. Long
+// queries are truncated and suffixed with a hash so they stay unique.
+func queryFilenamePart(rawQuery string) string {
+	q := safeFilename(rawQuery)
+	if len(q) <= maxQueryNameLen {
+		return q
+	}
+	sum := sha256.Sum256([]byte(rawQuery))
+	return q[:maxQueryNameLen-13] + "_" + hex.EncodeToString(sum[:6])
 }
 
 // RelativePagePath returns a URL-style (forward-slashed) relative path from
