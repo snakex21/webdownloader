@@ -69,7 +69,7 @@
                         <i class="fas fa-download" aria-hidden="true"></i>
                         <span data-i18n="btnDownload">Pobierz</span>
                     </button>
-                    <button type="button" class="btn btn-secondary" id="queueBtn" data-i18n-title="btnQueue" title="Do kolejki">
+                    <button type="button" class="btn btn-secondary" id="queueBtn" data-i18n-title="btnQueue" data-i18n-aria="btnQueue" title="Do kolejki" aria-label="Do kolejki">
                         <i class="fas fa-list" aria-hidden="true"></i>
                         <span data-i18n="btnQueue">Do kolejki</span>
                     </button>
@@ -259,7 +259,7 @@
                     <button type="button" class="mini-btn" id="openReportBtn"><i class="fas fa-file-alt" aria-hidden="true"></i> <span data-i18n="btnReport">Raport (JSON)</span></button>
                 </div>
 
-                <div class="stats">
+                <div class="stats" id="statsRow">
                     <div class="stat"><div class="stat-value" id="pageCount">0</div><div class="stat-label" data-i18n="stat.pages">Strony</div></div>
                     <div class="stat"><div class="stat-value" id="assetCount">0</div><div class="stat-label" data-i18n="stat.assets">Zasoby</div></div>
                     <div class="stat"><div class="stat-value" id="attachmentCount">0</div><div class="stat-label" data-i18n="stat.files">Załączniki</div></div>
