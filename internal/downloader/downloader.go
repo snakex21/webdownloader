@@ -209,8 +209,9 @@ func Download(opts Options, events Events) (Summary, error) {
 			defer f.Close()
 		}
 	}
+	uiOnError := events.OnError
 	logError := func(pageURL string, err error) {
-		events.OnError(pageURL, err)
+		uiOnError(pageURL, err)
 		if errLog != nil {
 			line := time.Now().Format(time.RFC3339) + " " + pageURL + " " + err.Error() + "\n"
 			_, _ = errLog.WriteString(line)
@@ -221,6 +222,9 @@ func Download(opts Options, events Events) (Summary, error) {
 		reportErrors = append(reportErrors, map[string]string{"url": pageURL, "error": err.Error()})
 		logError(pageURL, err)
 	}
+	// Asset/attachment failures reported from downloadPage and the CSS
+	// rewriter end up in the UI, download-errors.log and the JSON report.
+	events.OnError = logReportError
 
 	type queueItem struct {
 		URL   string
@@ -322,9 +326,12 @@ loop:
 					continue
 				}
 				attachmentsSeen[attURL] = struct{}{}
-				if dl, ok := downloadAssetFileWithLimit(httpFetcher, opts.OutputDir, attURL, opts.MaxFileBytes, downloadedAssets); ok && !dl.reused {
+				dl, err := downloadAssetFileWithLimit(httpFetcher, opts.OutputDir, attURL, opts.MaxFileBytes, downloadedAssets)
+				if err != nil {
+					reportAssetError(ctx, events, attURL, err)
+				} else if !dl.reused {
 					attachmentCount++
-					totalBytes.Add(int64(len(dl.body)))
+					totalBytes.Add(dl.size)
 				}
 				events.OnAsset(attURL, "attachment")
 				if opts.MaxTotalBytes > 0 && totalBytes.Load() >= opts.MaxTotalBytes {
@@ -486,12 +493,21 @@ func downloadPage(
 		return 0, nil, nil, 0, fmt.Errorf("http %d", resp.Status)
 	}
 	if !resp.IsHTML() {
-		// Not an HTML page — treat as a regular asset download, no further
-		// processing. Caller will count it as an attachment.
-		if dl, ok := downloadAssetFileWithLimit(httpFetcher, opts.OutputDir, pageURL, opts.MaxFileBytes, downloadedAssets); ok {
-			pageBytes = int64(len(dl.body))
-			totalBytes.Add(pageBytes)
+		// Not an HTML page: save the body we already have (no second
+		// request) where links to it are rewritten, i.e. the asset path.
+		if _, dup := downloadedAssets[pageURL]; dup {
+			return 0, nil, nil, 0, nil
 		}
+		assetPath, pErr := AssetPathFor(opts.OutputDir, pageURL)
+		if pErr != nil {
+			return 0, nil, nil, 0, fmt.Errorf("asset path: %w", pErr)
+		}
+		if err := writeOutputFile(opts.OutputDir, assetPath, resp.Body); err != nil {
+			return 0, nil, nil, 0, fmt.Errorf("write file: %w", err)
+		}
+		downloadedAssets[pageURL] = struct{}{}
+		pageBytes = int64(len(resp.Body))
+		totalBytes.Add(pageBytes)
 		return 0, nil, nil, pageBytes, nil
 	}
 
@@ -525,12 +541,13 @@ func downloadPage(
 		if !shouldDownloadAsset(assetURL, domain, opts) {
 			continue
 		}
-		dl, ok := downloadAssetFileWithLimit(httpFetcher, opts.OutputDir, assetURL, opts.MaxFileBytes, downloadedAssets)
-		if !ok {
+		dl, dlErr := downloadAssetFileWithLimit(httpFetcher, opts.OutputDir, assetURL, opts.MaxFileBytes, downloadedAssets)
+		if dlErr != nil {
+			reportAssetError(opts.Context, events, assetURL, dlErr)
 			continue
 		}
 		downloadedAssets[assetURL] = struct{}{}
-		totalBytes.Add(int64(len(dl.body)))
+		totalBytes.Add(dl.size)
 
 		// If this is a CSS file, parse it for nested url() / @import
 		// references. The file is rewritten on disk so those references
@@ -597,57 +614,62 @@ func isCSS(path, contentType string) bool {
 	return strings.Contains(strings.ToLower(contentType), "text/css")
 }
 
-// downloadResult bundles the on-disk path, the bytes we read and the
-// content-type header — everything the caller needs to decide what to do
-// next.
+// downloadResult bundles the on-disk path, size and content-type of a
+// downloaded asset. body is only populated for CSS (it is rewritten).
 type downloadResult struct {
 	path        string
+	size        int64
 	body        []byte
 	contentType string
 	reused      bool // already counted in this run; still rewrite references
 }
 
-// downloadAssetFileWithLimit downloads an asset with an optional per-file
-// size cap. The downloaded file is also recorded in `seen` (if non-nil) so
-// the caller can dedupe across pages.
-func downloadAssetFileWithLimit(fetcher *Fetcher, baseDir, assetURL string, maxBytes int64, seen map[string]struct{}) (downloadResult, bool) {
-	if seen != nil {
-		if _, dup := seen[assetURL]; dup {
-			fullPath, err := AssetPathFor(baseDir, assetURL)
-			return downloadResult{path: fullPath, reused: true}, err == nil
-		}
-	}
+// downloadAssetFileWithLimit streams an asset to disk with an optional
+// per-file size cap. Files that already exist (complete, thanks to atomic
+// writes) are reused. The URL is recorded in `seen` (if non-nil) so the
+// caller can dedupe across pages.
+func downloadAssetFileWithLimit(fetcher *Fetcher, baseDir, assetURL string, maxBytes int64, seen map[string]struct{}) (downloadResult, error) {
 	fullPath, pathErr := AssetPathFor(baseDir, assetURL)
 	if pathErr != nil {
-		return downloadResult{}, false
+		return downloadResult{}, pathErr
 	}
-	if info, err := statOutputFile(baseDir, fullPath); err == nil && info.Size() > 0 {
+	if seen != nil {
+		if _, dup := seen[assetURL]; dup {
+			return downloadResult{path: fullPath, reused: true}, nil
+		}
+	}
+	if info, err := statOutputFile(baseDir, fullPath); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
 		if seen != nil {
 			seen[assetURL] = struct{}{}
 		}
-		return downloadResult{path: fullPath, body: nil, contentType: ""}, true
+		return downloadResult{path: fullPath}, nil
 	}
-	resp, err := fetcher.FetchURLWithLimit(assetURL, maxBytes)
-	if err != nil || !resp.OK {
-		return downloadResult{}, false
+	resp, err := fetcher.FetchToFile(assetURL, maxBytes, baseDir, fullPath)
+	if err != nil {
+		return downloadResult{}, err
 	}
-	if err := writeOutputFile(baseDir, fullPath, resp.Body); err != nil {
-		return downloadResult{}, false
+	if !resp.OK {
+		return downloadResult{}, fmt.Errorf("http %d", resp.Status)
+	}
+	dl := downloadResult{path: fullPath, size: resp.Size, contentType: resp.ContentType}
+	if isCSS(fullPath, resp.ContentType) {
+		if body, err := readOutputFile(baseDir, fullPath); err == nil {
+			dl.body = body
+		}
 	}
 	if seen != nil {
 		seen[assetURL] = struct{}{}
 	}
-	return downloadResult{path: fullPath, body: resp.Body, contentType: resp.ContentType}, true
+	return dl, nil
 }
 
-// downloadAssetFile is a backwards-compatible thin wrapper used by
-// downloadPage when the caller doesn't care about the file content.
-func downloadAssetFile(fetcher *Fetcher, baseDir, assetURL string) (string, bool) {
-	dl, ok := downloadAssetFileWithLimit(fetcher, baseDir, assetURL, 0, nil)
-	if !ok {
-		return "", false
+// reportAssetError forwards a failed asset/attachment download to the error
+// log unless the run itself was cancelled.
+func reportAssetError(ctx context.Context, events Events, assetURL string, err error) {
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+		return
 	}
-	return dl.path, true
+	events.OnError(assetURL, fmt.Errorf("asset: %w", err))
 }
 
 func absoluteURL(base, ref string) (string, error) {

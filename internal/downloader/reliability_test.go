@@ -143,7 +143,7 @@ func TestInterruptedAssetDoesNotSavePartialFile(t *testing.T) {
 	f := NewFetcher()
 	defer f.Cancel()
 	out := t.TempDir()
-	if _, ok := downloadAssetFileWithLimit(f, out, srv.URL+"/partial.bin", 0, nil); ok {
+	if _, err := downloadAssetFileWithLimit(f, out, srv.URL+"/partial.bin", 0, nil); err == nil {
 		t.Fatal("truncated response marked successful")
 	}
 	if _, err := os.Stat(filepath.Join(out, "partial.bin")); !os.IsNotExist(err) {
