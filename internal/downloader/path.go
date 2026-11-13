@@ -47,7 +47,7 @@ func FilePathFor(baseDir, rawURL string) (string, error) {
 		filePath = filepath.Join(dir, base+"__"+safeQuery+ext)
 	}
 
-	return filepath.Join(baseDir, filePath), nil
+	return safeJoin(baseDir, filePath)
 }
 
 // AssetPathFor returns the on-disk path where an asset (image, css, etc.)
@@ -66,7 +66,7 @@ func AssetPathFor(baseDir, assetURL string) (string, error) {
 	if p == "" {
 		p = "index"
 	}
-	return filepath.Join(baseDir, p), nil
+	return safeJoin(baseDir, p)
 }
 
 // RelativePagePath returns a URL-style (forward-slashed) relative path from
@@ -145,4 +145,27 @@ func validateOutputPath(p string) error {
 		return fmt.Errorf("unsafe output path %q", p)
 	}
 	return nil
+}
+
+// safeJoin is a final containment check after validateOutputPath: whatever
+// the URL decoded to, the joined path must stay inside baseDir. It returns the
+// path in the same form as baseDir (relative stays relative) so callers such
+// as writeOutputFile can compute filepath.Rel(baseDir, path).
+func safeJoin(baseDir, relative string) (string, error) {
+	root, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve base directory: %w", err)
+	}
+	target, err := filepath.Abs(filepath.Join(root, relative))
+	if err != nil {
+		return "", fmt.Errorf("resolve target path: %w", err)
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return "", fmt.Errorf("check target path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("refusing path outside download directory: %q", relative)
+	}
+	return filepath.Join(baseDir, relative), nil
 }
