@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -336,5 +337,67 @@ func TestGuessingGivesUpAfterMisses(t *testing.T) {
 	// Without the rule all 400 would be requested.
 	if n := guesses.Load(); n > guessGiveUp || n < guessGiveUp/2 {
 		t.Errorf("%d guessed requests, want about %d", n, guessGiveUp)
+	}
+}
+
+func TestWWWAndApexAreOneSite(t *testing.T) {
+	opts := Options{}
+	for _, c := range []struct {
+		host, base string
+		want       bool
+	}{
+		{"skijumping.pl", "www.skijumping.pl", true},
+		{"www.skijumping.pl", "skijumping.pl", true},
+		{"WWW.Example.com.", "example.com", true},
+		{"foto.skijumping.pl", "www.skijumping.pl", false},
+		{"www.com", "com", false},
+		{"get.optad360.io", "www.skijumping.pl", false},
+	} {
+		if got := sameScopeHost(c.host, c.base, opts); got != c.want {
+			t.Errorf("sameScopeHost(%q, %q) = %v, want %v", c.host, c.base, got, c.want)
+		}
+	}
+	if !sameScopeHost("foto.skijumping.pl", "www.skijumping.pl", Options{IncludeSubdomains: true}) {
+		t.Error("subdomain option must still cover other subdomains")
+	}
+}
+
+// Links and assets on the apex host of a www start URL are mirrored and
+// rewritten like internal ones, not reported as external.
+func TestApexLinksOfWWWSiteAreInternal(t *testing.T) {
+	var port string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/logo.png":
+			fmt.Fprint(w, "PNG")
+		default:
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, strings.ReplaceAll(`<img src="http://site.test:PORT/logo.png"><a href="http://site.test:PORT/about">about</a>`, "PORT", port))
+		}
+	}))
+	defer srv.Close()
+	port = srv.URL[strings.LastIndex(srv.URL, ":")+1:]
+	// Route both names to the test server.
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	dialer := &net.Dialer{}
+	tr.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return dialer.DialContext(ctx, network, "127.0.0.1:"+port)
+	}
+	old := http.DefaultTransport
+	http.DefaultTransport = tr
+	defer func() { http.DefaultTransport = old }()
+	out := t.TempDir()
+	sum, err := Download(Options{URL: "http://www.site.test:" + port + "/", OutputDir: out, MaxDepth: 2}, Events{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.SkippedExternal != 0 {
+		t.Errorf("apex host reported as external: %v", sum.SkippedExternalHosts)
+	}
+	if sum.Pages != 2 {
+		t.Errorf("pages = %d, want 2 (apex /about crawled)", sum.Pages)
+	}
+	if _, err := os.Stat(filepath.Join(out, "logo.png")); err != nil {
+		t.Error("apex asset not downloaded")
 	}
 }
