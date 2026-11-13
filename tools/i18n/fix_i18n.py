@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Add missing `checkboxRemember` key to all languages in web/i18n.json."""
+"""Add the missing `checkboxRemember` key to every translation."""
 
 import json
 from pathlib import Path
 
-PATH = Path("web/i18n.json")
+ROOT = Path(__file__).resolve().parents[2]
+PATH = ROOT / "internal" / "webui" / "web" / "i18n.json"
 
 TRANSLATIONS = {
     "pl": "Zapamiętaj opcje",

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""
-Add new translation keys to every language in web/i18n.json. Missing
+r"""
+Add new translation keys to every language in the embedded i18n.json. Missing
 values fall back to the English defaults. Existing translations are
 preserved untouched.
 
-Run from the project root:  python scripts\patch_i18n.py
+Run from the project root:  python tools\i18n\patch_i18n.py
 """
 
 import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-I18N = ROOT / "web" / "i18n.json"
+ROOT = Path(__file__).resolve().parents[2]
+I18N = ROOT / "internal" / "webui" / "web" / "i18n.json"
 
 # New keys with their English defaults. Per-language overrides below
 # (only for languages the project ships in the screenshot / README).
