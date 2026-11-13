@@ -3,7 +3,7 @@
 //
 //	go run ./tools/examples/mythos [depth]
 //
-// Output goes to <exe-dir>/output/mythos.observer.
+// Output goes to <exe-dir>/output/<host> unless -out is given.
 package main
 
 import (
@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -24,6 +23,7 @@ func main() {
 	depth := flag.Int("depth", 1, "recursion depth (1 = main page only)")
 	all := flag.Bool("all", true, "download all file attachments (PDF/ZIP/etc)")
 	rawURL := flag.String("url", "https://mythos.observer/", "url to crawl")
+	outFlag := flag.String("out", "", "output directory (default <exe-dir>/output/<host>)")
 	flag.Parse()
 
 	parsed, err := url.Parse(*rawURL)
@@ -36,6 +36,9 @@ func main() {
 		exe, _ = os.Getwd()
 	}
 	outputDir := filepath.Join(filepath.Dir(exe), "output", strings.TrimPrefix(parsed.Hostname(), "www."))
+	if *outFlag != "" {
+		outputDir = *outFlag
+	}
 
 	fmt.Printf("URL:        %s\n", *rawURL)
 	fmt.Printf("Output:     %s\n", outputDir)
@@ -44,7 +47,6 @@ func main() {
 	fmt.Println()
 
 	var pages, assets, attachments atomic.Int64
-	progress := make(chan struct{}, 200)
 
 	summary, err := downloader.Download(downloader.Options{
 		URL:         *rawURL,
@@ -68,22 +70,20 @@ func main() {
 		},
 		OnAsset: func(assetURL, kind string) {
 			fmt.Printf("        + %s %s\n", kind, assetURL)
-			progress <- struct{}{}
 		},
 		OnError: func(pageURL string, err error) {
 			fmt.Printf("  ERROR  %s: %v\n", pageURL, err)
 		},
 		OnComplete: func(s downloader.Summary) {
-			close(progress)
 			fmt.Println()
 			fmt.Printf("Done. Pages=%d Assets=%d Attachments=%d OutputDir=%s\n",
 				s.Pages, s.Assets, s.Attachments, s.OutputDir)
 		},
 	})
-	_ = summary
-	_ = strconv.Itoa
-	_ = progress
 	if err != nil {
 		log.Fatalf("download failed: %v", err)
+	}
+	if summary.Pages == 0 {
+		os.Exit(2) // nothing saved (e.g. the start URL returned 404)
 	}
 }
