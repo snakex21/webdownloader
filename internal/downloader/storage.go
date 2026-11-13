@@ -91,3 +91,17 @@ func statOutputFile(baseDir, fullPath string) (os.FileInfo, error) {
 	}
 	return root.Stat(rel)
 }
+
+// removeOutputFile deletes a file inside baseDir (confined like writes).
+func removeOutputFile(baseDir, fullPath string) error {
+	root, err := os.OpenRoot(baseDir)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	rel, err := filepath.Rel(baseDir, fullPath)
+	if err != nil {
+		return err
+	}
+	return root.Remove(rel)
+}

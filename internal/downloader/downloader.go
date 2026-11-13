@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -146,8 +147,10 @@ type Summary struct {
 }
 
 // Events receives progress notifications from a running download. All
-// callbacks are optional; they are invoked on the same goroutine that runs
-// Download, so implementations must be fast (or push to a channel).
+// callbacks are optional and must be fast (or push to a channel). They are
+// never called concurrently; OnPage with Status "progress" comes from a
+// ticker goroutine (about twice a second), everything else from the
+// goroutine running Download.
 type Events struct {
 	OnPage     func(PageEvent)
 	OnAsset    func(assetURL, kind string) // kind: "asset" | "attachment"
@@ -166,6 +169,11 @@ type PageEvent struct {
 	Bytes       int64
 	// Queued is the number of pages waiting in the crawl queue.
 	Queued int
+	// Transferred counts every byte received from the network so far,
+	// including files still being downloaded (for speed estimates).
+	Transferred int64
+	// Current is the file being downloaded right now.
+	Current string
 }
 
 // pageFetcher is the contract Download uses to grab one page. The default
@@ -177,8 +185,12 @@ type pageFetcher interface {
 }
 
 // maxSpeculative caps requests made for URLs guessed from script and JSON
-// string literals, so a data-heavy script cannot explode a crawl.
-const maxSpeculative = 3000
+// string literals, so a data-heavy script cannot explode a crawl; per page
+// at most maxSpeculativePerPage new guesses are tried.
+const (
+	maxSpeculative        = 1500
+	maxSpeculativePerPage = 150
+)
 
 // crawler holds the state of one Download run.
 type crawler struct {
@@ -189,17 +201,28 @@ type crawler struct {
 	fetcher pageFetcher
 	events  Events
 	seen    map[string]struct{}
+	// Live counters, also read by the progress ticker.
+	pagesDone   atomic.Int64
+	attachments atomic.Int64
+	queueLen    atomic.Int64
+	current     atomic.Pointer[string]
+	emitMu      sync.Mutex
 	// seenPaths dedupes by output file: "app.js?v=7" and "app.js" are
 	// saved to the same file and must be fetched and counted once.
 	seenPaths  map[string]struct{}
 	totalBytes atomic.Int64
-	assets     int
+	assetsN    atomic.Int64
 
 	// Script/JSON literal discovery.
 	jsLiterals       map[string][]string // script URL -> document-relative literals
 	scanned          map[string]struct{}
 	speculativeTried map[string]struct{}
-	discoveredPages  []string // pages found in literals for the current page
+	pageSpeculative  int
+	// failed remembers assets that already failed in this run, so every
+	// page linking the same broken file does not request it again.
+	failed          map[string]struct{}
+	guesses         map[string]*guessStat
+	discoveredPages []string // pages found in literals for the current page
 
 	skippedExternal map[string]int
 	reportErrors    []map[string]string
@@ -272,6 +295,8 @@ func Download(opts Options, events Events) (Summary, error) {
 		jsLiterals:       make(map[string][]string),
 		scanned:          make(map[string]struct{}),
 		speculativeTried: make(map[string]struct{}),
+		failed:           make(map[string]struct{}),
+		guesses:          make(map[string]*guessStat),
 		skippedExternal:  make(map[string]int),
 	}
 	c.http = NewFetcherWithContext(opts.Context, opts.Retries)
@@ -301,7 +326,9 @@ func Download(opts Options, events Events) (Summary, error) {
 	summary := Summary{OutputDir: opts.OutputDir, ReportPath: filepath.Join(opts.OutputDir, "download-report.json")}
 	finish := func() (Summary, error) {
 		summary.Bytes = c.totalBytes.Load()
-		summary.Assets = c.assets
+		summary.Assets = int(c.assetsN.Load())
+		summary.Pages = int(c.pagesDone.Load())
+		summary.Attachments = int(c.attachments.Load())
 		summary.Errors = len(c.reportErrors)
 		summary.SkippedExternal, summary.SkippedExternalHosts = c.skippedTotals()
 		summary.NeedsServer = c.needsServer
@@ -355,17 +382,34 @@ func Download(opts Options, events Events) (Summary, error) {
 	attachmentsSeen := make(map[string]struct{})
 
 	emit := func(item queueItem, status string) {
-		c.events.OnPage(PageEvent{
-			URL:         item.URL,
-			Status:      status,
-			Depth:       item.Depth,
-			Pages:       summary.Pages,
-			Assets:      c.assets,
-			Attachments: summary.Attachments,
-			Bytes:       c.totalBytes.Load(),
-			Queued:      len(queue),
-		})
+		c.queueLen.Store(int64(len(queue)))
+		ev := c.snapshot(status)
+		ev.URL, ev.Depth = item.URL, item.Depth
+		c.emitPage(ev)
 	}
+	// The ticker reports bytes and the current file while the crawl is
+	// busy inside one page or one large file.
+	stopTicker := make(chan struct{})
+	tickerDone := make(chan struct{})
+	go func() {
+		defer close(tickerDone)
+		t := time.NewTicker(500 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-stopTicker:
+				return
+			case <-c.ctx.Done():
+				return
+			case <-t.C:
+				c.emitPage(c.snapshot("progress"))
+			}
+		}
+	}()
+	defer func() {
+		close(stopTicker)
+		<-tickerDone
+	}()
 
 loop:
 	for {
@@ -377,7 +421,7 @@ loop:
 			summary.Cancelled = true
 			break
 		}
-		if opts.MaxPages > 0 && summary.Pages >= opts.MaxPages {
+		if opts.MaxPages > 0 && int(c.pagesDone.Load()) >= opts.MaxPages {
 			break
 		}
 		if opts.MaxTotalBytes > 0 && c.totalBytes.Load() >= opts.MaxTotalBytes {
@@ -412,6 +456,7 @@ loop:
 		emit(item, "downloading")
 
 		c.discoveredPages = nil
+		c.pageSpeculative = 0
 		links, attachments, err := c.downloadPage(item.URL)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || c.ctx.Err() != nil {
@@ -423,7 +468,7 @@ loop:
 				continue
 			}
 			c.events.OnError(item.URL, err)
-			if item.Depth == 0 && summary.Pages == 0 {
+			if item.Depth == 0 && c.pagesDone.Load() == 0 {
 				summary.Failed = true
 				summary.FailKind, summary.FailStatus = classifyError(err)
 				summary.FailDetail = err.Error()
@@ -431,7 +476,7 @@ loop:
 			emit(item, "error")
 			continue
 		}
-		summary.Pages++
+		c.pagesDone.Add(1)
 
 		if opts.DownloadAll {
 			for _, attURL := range attachments {
@@ -443,11 +488,12 @@ loop:
 					continue
 				}
 				attachmentsSeen[attURL] = struct{}{}
+				c.setCurrent(attURL)
 				dl, err := c.download(attURL)
 				if err != nil {
 					reportAssetError(c.ctx, c.events, attURL, err)
 				} else if !dl.reused {
-					summary.Attachments++
+					c.attachments.Add(1)
 					c.totalBytes.Add(dl.size)
 				}
 				c.events.OnAsset(attURL, "attachment")
@@ -474,7 +520,7 @@ loop:
 		}
 		emit(item, "done")
 		log.Printf("[PROGRESS] pages=%d assets=%d attachments=%d bytes=%d queued=%d",
-			summary.Pages, c.assets, summary.Attachments, c.totalBytes.Load(), len(queue))
+			c.pagesDone.Load(), c.assetsN.Load(), c.attachments.Load(), c.totalBytes.Load(), len(queue))
 
 		if opts.PageDelay > 0 && len(queue) > 0 {
 			select {
@@ -648,23 +694,32 @@ func (c *crawler) fetchAsset(assetURL, pageURL string, speculative bool) (string
 		}
 		return "", false
 	}
+	if _, bad := c.failed[assetURL]; bad {
+		return "", false
+	}
 	if speculative {
 		if _, tried := c.speculativeTried[assetURL]; tried {
 			if _, ok := c.seen[assetURL]; !ok {
 				return "", false
 			}
 		} else {
-			if len(c.speculativeTried) >= maxSpeculative {
+			if len(c.speculativeTried) >= maxSpeculative || c.pageSpeculative >= maxSpeculativePerPage {
 				return "", false
 			}
 			c.speculativeTried[assetURL] = struct{}{}
+			c.pageSpeculative++
 		}
 	}
 	if err := c.opts.Pause.Wait(c.ctx); err != nil {
 		return "", false
 	}
+	c.setCurrent(assetURL)
 	dl, err := c.download(assetURL)
 	if err != nil {
+		if c.ctx.Err() != nil {
+			return "", false
+		}
+		c.failed[assetURL] = struct{}{}
 		if speculative {
 			c.speculativeMiss++
 		} else {
@@ -672,9 +727,19 @@ func (c *crawler) fetchAsset(assetURL, pageURL string, speculative bool) (string
 		}
 		return "", false
 	}
+	// A guessed URL answered with an HTML page ("soft 404"): not the file
+	// the literal named, so do not keep it or scan it.
+	if speculative && !dl.reused && strings.Contains(strings.ToLower(dl.contentType), "text/html") && !isHTMLPath(urlPath(assetURL)) {
+		_ = removeOutputFile(c.opts.OutputDir, dl.path)
+		delete(c.seen, assetURL)
+		delete(c.seenPaths, strings.ToLower(dl.path))
+		c.failed[assetURL] = struct{}{}
+		c.speculativeMiss++
+		return "", false
+	}
 	c.totalBytes.Add(dl.size)
 	if !dl.reused {
-		c.assets++
+		c.assetsN.Add(1)
 		c.events.OnAsset(assetURL, "asset")
 	}
 	c.postProcess(assetURL, pageURL, dl)
@@ -711,7 +776,7 @@ func (c *crawler) storeCaptured(r capturedResource, pageURL string) {
 	}
 	c.seen[r.URL] = struct{}{}
 	c.totalBytes.Add(int64(len(r.Body)))
-	c.assets++
+	c.assetsN.Add(1)
 	c.events.OnAsset(r.URL, "asset")
 	c.postProcess(r.URL, pageURL, downloadResult{path: p, size: int64(len(r.Body)), body: r.Body, contentType: r.MimeType})
 }
@@ -737,6 +802,9 @@ func (c *crawler) postProcess(assetURL, pageURL string, dl downloadResult) {
 		if body == nil {
 			body, _ = readOutputFile(c.opts.OutputDir, dl.path)
 		}
+		if looksLikeHTML(body) {
+			return // an error page served under a .js/.json name
+		}
 		switch kind {
 		case "js":
 			c.scanScript(string(body), assetURL)
@@ -745,7 +813,7 @@ func (c *crawler) postProcess(assetURL, pageURL string, dl downloadResult) {
 		}
 	}
 	if kind == "js" {
-		c.resolveLiterals(c.jsLiterals[assetURL], pageURL)
+		c.resolveLiterals(c.jsLiterals[assetURL], pageURL, assetURL)
 	}
 }
 
@@ -793,16 +861,34 @@ func (c *crawler) scanScript(src, scriptURL string) {
 func (c *crawler) scanJSON(data []byte, jsonURL, pageURL string) {
 	c.needsServer = true // fetched JSON implies fetch()
 	lits := ScanJSON(data)
-	c.resolveLiterals(lits, jsonURL)
+	c.resolveLiterals(lits, jsonURL, jsonURL)
 	if pageURL != "" && pageURL != jsonURL {
-		c.resolveLiterals(lits, pageURL)
+		c.resolveLiterals(lits, pageURL, jsonURL)
 	}
 }
 
+// guessGiveUp stops guessing from one script or JSON file (for one page
+// folder) after this many guessed URLs turned out not to exist (and none did).
+const guessGiveUp = 20
+
+type guessStat struct{ tries, hits int }
+
 // resolveLiterals turns document-relative literals into speculative
-// downloads (files) or speculative pages (.html).
-func (c *crawler) resolveLiterals(lits []string, baseURL string) {
+// downloads (files) or speculative pages (.html). source names the script
+// or JSON file the literals came from.
+func (c *crawler) resolveLiterals(lits []string, baseURL, source string) {
+	// Counted per source and base folder: the same data file can name
+	// files that exist relative to one page folder and not another.
+	key := source + "|" + path.Dir(urlPath(baseURL)+"x")
+	st := c.guesses[key]
+	if st == nil {
+		st = &guessStat{}
+		c.guesses[key] = st
+	}
 	for _, lit := range lits {
+		if st.hits == 0 && st.tries >= guessGiveUp {
+			return // this file's strings are evidently not paths here
+		}
 		abs, err := absoluteURL(baseURL, lit)
 		if err != nil || !isHTTPURL(abs) {
 			continue
@@ -822,7 +908,13 @@ func (c *crawler) resolveLiterals(lits []string, baseURL string) {
 		if !sameScopeHost(u.Hostname(), c.domain, c.opts) {
 			continue // never guess CDN files
 		}
-		c.fetchAsset(abs, baseURL, true)
+		missesBefore := c.speculativeMiss
+		if _, ok := c.fetchAsset(abs, baseURL, true); ok {
+			st.tries++
+			st.hits++
+		} else if c.speculativeMiss > missesBefore {
+			st.tries++
+		}
 	}
 }
 
@@ -965,7 +1057,7 @@ func (c *crawler) processScripts(doc *goquery.Document, pageURL, pageDir string)
 			if src, ok := s.Attr("src"); ok {
 				if abs, err := absoluteURL(pageURL, src); err == nil {
 					if lits, ok := c.jsLiterals[abs]; ok {
-						c.resolveLiterals(lits, pageURL)
+						c.resolveLiterals(lits, pageURL, abs)
 					}
 				}
 			}
@@ -1005,7 +1097,7 @@ func (c *crawler) processScripts(doc *goquery.Document, pageURL, pageDir string)
 					c.needsServer = true
 					c.fetchAsset(abs, pageURL, true)
 				} else {
-					c.resolveLiterals([]string{ref.URL}, pageURL)
+					c.resolveLiterals([]string{ref.URL}, pageURL, pageURL+"#inline")
 				}
 			}
 		}
@@ -1142,4 +1234,44 @@ func setRawText(s *goquery.Selection, text string) {
 		}
 		n.AppendChild(&html.Node{Type: html.TextNode, Data: text})
 	}
+}
+
+// snapshot builds a progress event from the live counters.
+func (c *crawler) snapshot(status string) PageEvent {
+	ev := PageEvent{
+		Status:      status,
+		Pages:       int(c.pagesDone.Load()),
+		Assets:      int(c.assetsN.Load()),
+		Attachments: int(c.attachments.Load()),
+		Bytes:       c.totalBytes.Load(),
+		Queued:      int(c.queueLen.Load()),
+		Transferred: c.http.Transferred(),
+	}
+	if cur := c.current.Load(); cur != nil {
+		ev.Current = *cur
+	}
+	return ev
+}
+
+// emitPage serialises OnPage calls from the crawl and the ticker.
+func (c *crawler) emitPage(ev PageEvent) {
+	c.emitMu.Lock()
+	defer c.emitMu.Unlock()
+	c.events.OnPage(ev)
+}
+
+func (c *crawler) setCurrent(u string) { c.current.Store(&u) }
+
+func urlPath(raw string) string {
+	if u, err := url.Parse(raw); err == nil {
+		return u.Path
+	}
+	return raw
+}
+
+// looksLikeHTML reports whether a body starts like an HTML document.
+func looksLikeHTML(body []byte) bool {
+	head := strings.ToLower(strings.TrimSpace(string(body[:min(len(body), 512)])))
+	head = strings.TrimPrefix(head, "\ufeff")
+	return strings.HasPrefix(head, "<!doctype html") || strings.HasPrefix(head, "<html") || strings.HasPrefix(head, "<head")
 }

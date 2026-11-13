@@ -187,6 +187,11 @@ func looksLikeFilePath(v string) bool {
 	if v[0] == ' ' || v[len(v)-1] == ' ' || strings.ContainsAny(v, "<>{}|\\^\"'`\n\r\t*$") {
 		return false
 	}
+	// "Popover requires tooltip.js" is a message, not a path: a literal with
+	// spaces counts only when it also has a directory part.
+	if strings.Contains(v, " ") && !strings.Contains(v, "/") {
+		return false
+	}
 	lower := strings.ToLower(v)
 	if strings.HasPrefix(lower, "//") || strings.HasPrefix(lower, "data:") ||
 		strings.HasPrefix(lower, "blob:") || strings.HasPrefix(lower, "javascript:") ||
