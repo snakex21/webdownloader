@@ -52,7 +52,12 @@ type Fetcher struct {
 	backoff      time.Duration // first retry delay, doubled per attempt
 	cookie       string
 	cookieOrigin *url.URL
+	// transferred counts body bytes received, including unfinished files.
+	transferred atomic.Int64
 }
+
+// Transferred returns the number of body bytes received so far.
+func (f *Fetcher) Transferred() int64 { return f.transferred.Load() }
 
 // NewFetcher creates a new Fetcher. The context is the one used for every
 // FetchURL call until Cancel is invoked.
@@ -303,7 +308,7 @@ func (f *Fetcher) open(rawURL string, maxBytes int64) (*openResponse, error) {
 		return nil, idle.wrap(err)
 	}
 	idle.touch()
-	body := &idleBody{rc: resp.Body, r: resp.Body, idle: idle, cancel: reqCancel}
+	body := &idleBody{rc: resp.Body, r: resp.Body, idle: idle, cancel: reqCancel, counter: &f.transferred}
 
 	if maxBytes > 0 && resp.ContentLength > maxBytes {
 		body.Close()
@@ -356,16 +361,20 @@ func (it *idleTimer) wrap(err error) error {
 }
 
 type idleBody struct {
-	rc     io.ReadCloser
-	r      io.Reader
-	idle   *idleTimer
-	cancel context.CancelFunc
+	rc      io.ReadCloser
+	r       io.Reader
+	idle    *idleTimer
+	cancel  context.CancelFunc
+	counter *atomic.Int64
 }
 
 func (b *idleBody) Read(p []byte) (int, error) {
 	n, err := b.r.Read(p)
 	if n > 0 {
 		b.idle.touch()
+		if b.counter != nil {
+			b.counter.Add(int64(n))
+		}
 	}
 	if err != nil && err != io.EOF {
 		err = b.idle.wrap(err)

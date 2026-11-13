@@ -101,7 +101,7 @@ runs the download engine from the command line without the UI (exit code
   page; `.html` ones are crawled as pages). JSON files are scanned for
   path-like strings too. Paths built at run time (`'themes/' + name + '.css'`,
   template literals with `${…}`) cannot be found this way — use the accurate
-  mode. Guessed URLs that do not exist are skipped silently (max. 3000).
+  mode. Guessed URLs that do not exist, or that answer with an HTML error page, are skipped silently (max. 150 per page, 1500 per run); a file that failed once is not requested again in the same run.
 - **Accurate mode.** Every page is opened in a hidden browser; all responses
   (modules, JSON, lazy images, fonts) are saved, links created by scripts are
   followed, and the original HTML is saved (not the script-modified DOM,

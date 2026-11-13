@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -243,5 +244,96 @@ func TestClassifyError(t *testing.T) {
 		if kind != c.kind || status != c.status {
 			t.Errorf("classifyError(%v) = %q %d, want %q %d", c.err, kind, status, c.kind, c.status)
 		}
+	}
+}
+
+// Reproduces the skijumping.pl stall: an error message in a library looked
+// like a file name, the server answered it with an HTML page (soft 404),
+// the page was scanned as a script and every quoted path in it became a
+// slow, silent 404 request.
+func TestSpeculativeSoft404AndBrokenAssets(t *testing.T) {
+	var requests atomic.Int64
+	var brokenHits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		switch {
+		case r.URL.Path == "/lib.js":
+			w.Header().Set("Content-Type", "text/javascript")
+			fmt.Fprint(w, `throw new Error("Popover requires tooltip.js"); var x = "js/soft.js";`)
+		case r.URL.Path == "/js/soft.js":
+			w.Header().Set("Content-Type", "text/html")
+			var b strings.Builder
+			b.WriteString("<!DOCTYPE html><html>")
+			for i := 0; i < 300; i++ {
+				fmt.Fprintf(&b, `<img src="pics/p%d.jpg">`, i)
+			}
+			fmt.Fprint(w, b.String())
+		case r.URL.Path == "/broken.css":
+			brokenHits.Add(1)
+			http.Error(w, "nope", http.StatusForbidden)
+		case strings.HasSuffix(r.URL.Path, ".jpg"):
+			http.NotFound(w, r)
+		default:
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<link rel="stylesheet" href="/broken.css"><script src="/lib.js"></script><a href="/a.html">a</a><a href="/b.html">b</a>`)
+		}
+	}))
+	defer srv.Close()
+	out := t.TempDir()
+	sum, err := Download(Options{URL: srv.URL + "/", OutputDir: out, MaxDepth: 2}, Events{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "js", "soft.js")); !os.IsNotExist(err) {
+		t.Error("an HTML answer to a guessed .js URL must not be saved")
+	}
+	if n := requests.Load(); n > 12 {
+		t.Errorf("%d requests: soft-404 page was scanned as a script", n)
+	}
+	if brokenHits.Load() > 1 {
+		t.Errorf("broken asset requested %d times, want once per run", brokenHits.Load())
+	}
+	if sum.Errors != 1 {
+		t.Errorf("errors = %d, want 1 (broken.css reported once)", sum.Errors)
+	}
+}
+
+func TestLiteralWithSpacesNeedsDirectory(t *testing.T) {
+	for v, want := range map[string]bool{
+		"Popover requires tooltip.js":                false,
+		"gra zapamietywanie/gra zapamietywanie.html": true,
+		"img/a b.png": true,
+	} {
+		if got := looksLikeFilePath(v); got != want {
+			t.Errorf("looksLikeFilePath(%q) = %v, want %v", v, got, want)
+		}
+	}
+}
+
+// A script full of strings that are not paths on this site stops being
+// mined after guessGiveUp misses instead of costing hundreds of requests.
+func TestGuessingGivesUpAfterMisses(t *testing.T) {
+	var guesses atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/app.js":
+			w.Header().Set("Content-Type", "text/javascript")
+			for i := 0; i < 400; i++ {
+				fmt.Fprintf(w, "var g%d = 'gfx/item%d.png';\n", i, i)
+			}
+		case strings.HasPrefix(r.URL.Path, "/gfx/"):
+			guesses.Add(1)
+			http.NotFound(w, r)
+		default:
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<script src="/app.js"></script>`)
+		}
+	}))
+	defer srv.Close()
+	if _, err := Download(Options{URL: srv.URL + "/", OutputDir: t.TempDir()}, Events{}); err != nil {
+		t.Fatal(err)
+	}
+	if n := guesses.Load(); n != guessGiveUp {
+		t.Errorf("%d guessed requests, want %d", n, guessGiveUp)
 	}
 }
