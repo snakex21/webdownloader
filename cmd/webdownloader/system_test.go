@@ -8,7 +8,10 @@ import (
 
 func TestDeleteFolderRemovesRecordedDownloadDirectly(t *testing.T) {
 	previousStorage := appStorage
-	t.Cleanup(func() { appStorage = previousStorage })
+	previousTrash := trashFolder
+	var trashed []string
+	trashFolder = func(p string) error { trashed = append(trashed, p); return os.RemoveAll(p) }
+	t.Cleanup(func() { appStorage = previousStorage; trashFolder = previousTrash })
 
 	baseDir := t.TempDir()
 	target := filepath.Join(baseDir, "example.com")
@@ -36,8 +39,17 @@ func TestDeleteFolderRemovesRecordedDownloadDirectly(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	busy := &api{}
+	busy.setActiveDownload("run", func() {}, nil, target)
+	if result := busy.deleteFolder(target); result != "error: busy" {
+		t.Fatalf("deleteFolder() of a running download = %q, want refusal", result)
+	}
+
 	if result := (&api{}).deleteFolder(target); result != "ok" {
 		t.Fatalf("deleteFolder() = %q", result)
+	}
+	if len(trashed) != 1 || trashed[0] != target {
+		t.Fatalf("folder must go through the Recycle Bin, trashed = %v", trashed)
 	}
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
 		t.Fatalf("target still exists or returned an unexpected error: %v", err)

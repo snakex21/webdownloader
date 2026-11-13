@@ -15,8 +15,8 @@ import (
 
 const (
 	applicationTitle = "WebDownloader"
-	minWindowWidth   = 900
-	minWindowHeight  = 720
+	minWindowWidth   = 760
+	minWindowHeight  = 560
 )
 
 // version is set at build time: build.bat <version> passes
@@ -74,6 +74,7 @@ func run(debug bool) error {
 	window.SetSize(minWindowWidth, minWindowHeight, webview.HintMin)
 
 	api := newAPI(window, translations)
+	defer api.closePreviews()
 	if err := bindAPI(window, api); err != nil {
 		return err
 	}
