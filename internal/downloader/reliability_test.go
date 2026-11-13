@@ -50,7 +50,7 @@ func TestDownloadRewritesSharedAssetsOnEveryPage(t *testing.T) {
 	}))
 	defer srv.Close()
 	out := t.TempDir()
-	summary, err := Download(Options{URL: srv.URL + "/", OutputDir: out, MaxDepth: 1}, Events{})
+	summary, err := Download(Options{URL: srv.URL + "/", OutputDir: out, MaxDepth: 2}, Events{})
 	if err != nil {
 		t.Fatal(err)
 	}
