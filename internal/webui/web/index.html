@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,283 +9,295 @@
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <i class="fas fa-globe"></i>
+    <header class="topbar">
+        <div class="brand" data-i18n-title="appDescription" title="Pobierz stronę internetową wraz z podstronami i zasobami">
+            <i class="fas fa-globe" aria-hidden="true"></i>
             <h1>WebDownloader</h1>
-            <p>Pobierz stronę internetową wraz z podstronami i zasobami</p>
-            <div class="language-selector">
-                <div class="language-dropdown">
-                    <div class="language-selected" id="languageSelected">
-                        <span class="flag-icon" id="currentFlag" aria-hidden="true">PL</span>
-                        <span class="language-name">Polski</span>
-                        <i class="fas fa-chevron-down" style="line-height: 1;"></i>
-                    </div>
-                    <div class="language-options" id="languageOptions">
-                        <div class="language-option" data-lang="pl" data-flag="pl"><span class="flag-icon" aria-hidden="true">PL</span>Polski</div>
-                        <div class="language-option" data-lang="en" data-flag="gb"><span class="flag-icon" aria-hidden="true">GB</span>English</div>
-                        <div class="language-option" data-lang="de" data-flag="de"><span class="flag-icon" aria-hidden="true">DE</span>Deutsch</div>
-                        <div class="language-option" data-lang="fr" data-flag="fr"><span class="flag-icon" aria-hidden="true">FR</span>Français</div>
-                        <div class="language-option" data-lang="es" data-flag="es"><span class="flag-icon" aria-hidden="true">ES</span>Español</div>
-                        <div class="language-option" data-lang="it" data-flag="it"><span class="flag-icon" aria-hidden="true">IT</span>Italiano</div>
-                        <div class="language-option" data-lang="pt" data-flag="pt"><span class="flag-icon" aria-hidden="true">PT</span>Português</div>
-                        <div class="language-option" data-lang="ru" data-flag="ru"><span class="flag-icon" aria-hidden="true">RU</span>Русский</div>
-                        <div class="language-option" data-lang="uk" data-flag="ua"><span class="flag-icon" aria-hidden="true">UA</span>Українська</div>
-                        <div class="language-option" data-lang="cs" data-flag="cz"><span class="flag-icon" aria-hidden="true">CZ</span>Čeština</div>
-                        <div class="language-option" data-lang="sk" data-flag="sk"><span class="flag-icon" aria-hidden="true">SK</span>Slovenčina</div>
-                        <div class="language-option" data-lang="hu" data-flag="hu"><span class="flag-icon" aria-hidden="true">HU</span>Magyar</div>
-                        <div class="language-option" data-lang="ro" data-flag="ro"><span class="flag-icon" aria-hidden="true">RO</span>Română</div>
-                        <div class="language-option" data-lang="nl" data-flag="nl"><span class="flag-icon" aria-hidden="true">NL</span>Nederlands</div>
-                        <div class="language-option" data-lang="sv" data-flag="se"><span class="flag-icon" aria-hidden="true">SE</span>Svenska</div>
-                        <div class="language-option" data-lang="da" data-flag="dk"><span class="flag-icon" aria-hidden="true">DK</span>Dansk</div>
-                        <div class="language-option" data-lang="fi" data-flag="fi"><span class="flag-icon" aria-hidden="true">FI</span>Suomi</div>
-                        <div class="language-option" data-lang="el" data-flag="gr"><span class="flag-icon" aria-hidden="true">GR</span>Ελληνικά</div>
-                        <div class="language-option" data-lang="tr" data-flag="tr"><span class="flag-icon" aria-hidden="true">TR</span>Türkçe</div>
-                        <div class="language-option" data-lang="ar" data-flag="sa"><span class="flag-icon" aria-hidden="true">SA</span>العربية</div>
-                        <div class="language-option" data-lang="he" data-flag="il"><span class="flag-icon" aria-hidden="true">IL</span>עברית</div>
-                        <div class="language-option" data-lang="ja" data-flag="jp"><span class="flag-icon" aria-hidden="true">JP</span>日本語</div>
-                        <div class="language-option" data-lang="ko" data-flag="kr"><span class="flag-icon" aria-hidden="true">KR</span>한국어</div>
-                        <div class="language-option" data-lang="zh" data-flag="cn"><span class="flag-icon" aria-hidden="true">CN</span>中文</div>
-                        <div class="language-option" data-lang="hi" data-flag="in"><span class="flag-icon" aria-hidden="true">IN</span>हिन्दी</div>
-                        <div class="language-option" data-lang="id" data-flag="id"><span class="flag-icon" aria-hidden="true">ID</span>Bahasa Indonesia</div>
-                        <div class="language-option" data-lang="vi" data-flag="vn"><span class="flag-icon" aria-hidden="true">VN</span>Tiếng Việt</div>
-                        <div class="language-option" data-lang="th" data-flag="th"><span class="flag-icon" aria-hidden="true">TH</span>ไทย</div>
-                        <div class="language-option" data-lang="no" data-flag="no"><span class="flag-icon" aria-hidden="true">NO</span>Norsk</div>
-                        <div class="language-option" data-lang="bg" data-flag="bg"><span class="flag-icon" aria-hidden="true">BG</span>Български</div>
-                        <div class="language-option" data-lang="hr" data-flag="hr"><span class="flag-icon" aria-hidden="true">HR</span>Hrvatski</div>
-                        <div class="language-option" data-lang="ca" data-flag="es"><span class="flag-icon" aria-hidden="true">ES</span>Català</div>
-                    </div>
-                </div>
-            </div>
         </div>
-        
-        <form id="downloadForm">
-            <div class="form-group">
-                <label>Adres strony</label>
-                <div class="input-wrapper">
-                    <i class="fas fa-link"></i>
-                    <input type="url" id="url" placeholder="https://skokimanager.pl" required>
-                </div>
-            </div>
+        <div class="lang">
+            <i class="fas fa-language" aria-hidden="true"></i>
+            <label for="language" class="sr-only" data-i18n="language">Język</label>
+            <select id="language">
+                <option value="pl">Polski</option>
+                <option value="en">English</option>
+                <option value="de">Deutsch</option>
+                <option value="fr">Français</option>
+                <option value="es">Español</option>
+                <option value="it">Italiano</option>
+                <option value="pt">Português</option>
+                <option value="ru">Русский</option>
+                <option value="uk">Українська</option>
+                <option value="cs">Čeština</option>
+                <option value="sk">Slovenčina</option>
+                <option value="hu">Magyar</option>
+                <option value="ro">Română</option>
+                <option value="nl">Nederlands</option>
+                <option value="sv">Svenska</option>
+                <option value="da">Dansk</option>
+                <option value="fi">Suomi</option>
+                <option value="no">Norsk</option>
+                <option value="el">Ελληνικά</option>
+                <option value="tr">Türkçe</option>
+                <option value="bg">Български</option>
+                <option value="hr">Hrvatski</option>
+                <option value="ca">Català</option>
+                <option value="ar">العربية</option>
+                <option value="he">עברית</option>
+                <option value="hi">हिन्दी</option>
+                <option value="id">Bahasa Indonesia</option>
+                <option value="vi">Tiếng Việt</option>
+                <option value="th">ไทย</option>
+                <option value="ja">日本語</option>
+                <option value="ko">한국어</option>
+                <option value="zh">中文</option>
+            </select>
+        </div>
+    </header>
 
-            <div class="row">
-                <div class="form-group">
-                    <label>Głębokość</label>
-                    <div class="input-wrapper">
-                        <i class="fas fa-layer-group"></i>
-                        <select id="depth">
-                            <option value="1">1 - Tylko główna strona</option>
-                            <option value="2" selected>2 - Główna + podstrony</option>
-                            <option value="3">3 - Główna + 2 poziomy</option>
-                            <option value="4">4 - Główna + 3 poziomy</option>
-                            <option value="5">5 - Wszystkie poziomy</option>
-                        </select>
+    <main class="layout">
+        <section class="panel form-panel">
+            <form id="downloadForm" novalidate>
+                <label for="url" class="field-label" data-i18n="labelUrl">Adres strony</label>
+                <div class="url-row">
+                    <div class="input-wrapper url-input">
+                        <i class="fas fa-link" aria-hidden="true"></i>
+                        <input type="text" id="url" inputmode="url" autocomplete="url" spellcheck="false"
+                               placeholder="https://example.com" data-i18n-placeholder="placeholderUrl"
+                               aria-describedby="urlError">
                     </div>
-                </div>
-            </div>
-
-            <div class="checkbox-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" id="downloadAll" checked>
-                    <span class="checkbox-custom"></span>
-                    <span class="checkbox-text">
-                        <i class="fas fa-file-archive"></i>
-                        Pobierz wszystkie pliki (PDF, ZIP, DOC, itp.)
-                    </span>
-                </label>
-            </div>
-
-            <details class="advanced" id="advanced">
-                <summary class="advanced-summary">
-                    <i class="fas fa-sliders-h"></i>
-                    <span id="advancedLabel">Zaawansowane opcje</span>
-                    <i class="fas fa-chevron-down chev"></i>
-                </summary>
-                <div class="advanced-body">
-                    <div>
-                        <div class="small-label" id="modeLabel">Tryb pobierania</div>
-                        <div class="mode-row">
-                            <label class="mode-pill active" data-mode="http">
-                                <input type="radio" name="mode" value="http" checked>
-                                <i class="fas fa-bolt"></i>
-                                <span data-i18n="modeFast">Szybki</span>
-                            </label>
-                            <label class="mode-pill" data-mode="browser">
-                                <input type="radio" name="mode" value="browser">
-                                <i class="fas fa-globe"></i>
-                                <span data-i18n="modeBrowser">Dokładny (Chromium)</span>
-                            </label>
-                        </div>
-                        <div class="hint" id="modeHint">
-                            Szybki tryb używa zwykłego HTTP. Tryb Dokładny renderuje
-                            stronę w przeglądarce (potrzebny jest Edge lub Chrome).
-                        </div>
-                    </div>
-
-                    <div class="checkbox-group" style="margin-bottom: 0;">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="includeSubdomains">
-                            <span class="checkbox-custom"></span>
-                            <span class="checkbox-text">
-                                <i class="fas fa-sitemap"></i>
-                                <span data-i18n="includeSubdomains">Pobieraj z subdomen</span>
-                            </span>
-                        </label>
-                    </div>
-
-                    <div class="checkbox-group" style="margin-bottom: 0;">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="includeExternal">
-                            <span class="checkbox-custom"></span>
-                            <span class="checkbox-text">
-                                <i class="fas fa-external-link-alt"></i>
-                                <span data-i18n="includeExternal">Pobieraj assety z CDN / zewnętrznych domen</span>
-                            </span>
-                        </label>
-                    </div>
-
-                    <div class="field-grid">
-                        <div class="form-group">
-                            <label id="maxPagesLabel">Maks. stron (0 = bez limitu)</label>
-                            <div class="input-wrapper">
-                                <i class="fas fa-file-alt"></i>
-                                <input type="number" id="maxPages" min="0" value="0" placeholder="0">
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label id="maxTotalLabel">Maks. rozmiar łącznie (MB)</label>
-                            <div class="input-wrapper">
-                                <i class="fas fa-hdd"></i>
-                                <input type="number" id="maxTotalMB" min="0" value="0" placeholder="0">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="field-grid">
-                        <div class="form-group">
-                            <label id="maxFileLabel">Maks. rozmiar pliku (MB)</label>
-                            <div class="input-wrapper">
-                                <i class="fas fa-file"></i>
-                                <input type="number" id="maxFileMB" min="0" value="0" placeholder="0">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="form-group" style="margin-bottom: 0;">
-                        <label id="cookieLabel">Cookie dla stron wymagających logowania</label>
-                        <div class="input-wrapper">
-                            <i class="fas fa-key"></i>
-                            <input type="text" id="cookieHeader" placeholder="session=...; token=...">
-                        </div>
-                        <div class="hint" id="cookieHint">Wklej wartość nagłówka Cookie z zalogowanej przeglądarki.</div>
-                    </div>
-                </div>
-            </details>
-
-            <div class="checkbox-group">
-                <label class="checkbox-label">
-                    <input type="checkbox" id="rememberOptions">
-                    <span class="checkbox-custom"></span>
-                    <span class="checkbox-text">
-                        <i class="fas fa-save"></i>
-                        Zapamiętaj opcje
-                    </span>
-                </label>
-            </div>
-
-            <div class="form-group">
-                <label id="labelOutput">Folder docelowy</label>
-                <div class="input-wrapper">
-                    <i class="fas fa-folder-open"></i>
-                    <input type="text" id="outputDir" placeholder="C:\output" style="padding-right: 56px;">
-                    <button type="button" id="pickFolderBtn" class="pick-btn" title="Wybierz folder">
-                        <i class="fas fa-ellipsis-h"></i>
+                    <button type="submit" class="btn btn-primary" id="downloadBtn">
+                        <i class="fas fa-download" aria-hidden="true"></i>
+                        <span data-i18n="btnDownload">Pobierz</span>
+                    </button>
+                    <button type="button" class="btn btn-secondary" id="queueBtn" data-i18n-title="btnQueue" title="Do kolejki">
+                        <i class="fas fa-list" aria-hidden="true"></i>
+                        <span data-i18n="btnQueue">Do kolejki</span>
                     </button>
                 </div>
-            </div>
+                <p class="field-error" id="urlError" role="alert" hidden></p>
 
-            <div class="button-row">
-                <button type="submit" class="btn" id="downloadBtn">
-                    <i class="fas fa-download"></i>
-                    <span id="downloadBtnLabel">Pobierz</span>
-                </button>
-                <button type="button" class="btn" id="queueBtn">
-                    <i class="fas fa-list"></i>
-                    <span id="queueBtnLabel">Do kolejki</span>
-                </button>
-                <button type="button" class="btn" id="pauseBtn" style="display: none;">
-                    <i class="fas fa-pause"></i>
-                    <span id="pauseBtnLabel">Pauza</span>
-                </button>
-                <button type="button" class="btn btn-cancel" id="cancelBtn" style="display: none;">
-                    <i class="fas fa-stop"></i>
-                    <span id="cancelBtnLabel">Anuluj</span>
-                </button>
-            </div>
-        </form>
-        
-        <div class="status" id="status">
-            <div class="status-card">
-                <div class="status-header">
-                    <div class="status-icon downloading" id="statusIcon">
-                        <i class="fas fa-spinner"></i>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label for="depth" class="field-label" data-i18n="labelDepth">Głębokość</label>
+                        <div class="input-wrapper">
+                            <i class="fas fa-layer-group" aria-hidden="true"></i>
+                            <select id="depth">
+                                <option value="1" data-i18n="depth1">1 – tylko ta strona</option>
+                                <option value="2" data-i18n="depth2" selected>2 – strona + podstrony</option>
+                                <option value="3" data-i18n="depth3">3 – strona + 2 poziomy</option>
+                                <option value="4" data-i18n="depth4">4 – strona + 3 poziomy</option>
+                                <option value="5" data-i18n="depth5">5 – głęboko (duże strony!)</option>
+                            </select>
+                        </div>
                     </div>
-                    <div>
-                        <div class="status-title" id="statusTitle">Pobieranie...</div>
-                        <div class="status-url" id="statusUrl"></div>
+                    <div class="form-group">
+                        <label for="outputDir" class="field-label" data-i18n="labelOutput">Folder docelowy</label>
+                        <div class="input-wrapper">
+                            <i class="fas fa-folder-open" aria-hidden="true"></i>
+                            <input type="text" id="outputDir" spellcheck="false" class="with-button">
+                            <button type="button" id="pickFolderBtn" class="pick-btn"
+                                    aria-label="Wybierz folder" title="Wybierz folder"
+                                    data-i18n-aria="pickFolder" data-i18n-title="pickFolder">
+                                <i class="fas fa-ellipsis-h" aria-hidden="true"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                <div class="progress-bar progress-wrap">
-                    <div class="progress-fill" id="progressFill"></div>
-                    <div class="progress-text" id="progressText"></div>
+                <div class="check-row">
+                    <input type="checkbox" id="downloadAll" class="check">
+                    <label for="downloadAll"><i class="fas fa-file-archive" aria-hidden="true"></i>
+                        <span data-i18n="checkboxDownloadAll">Pobierz załączniki (PDF, ZIP, DOC, MP3…)</span></label>
+                </div>
+                <p class="hint warn-hint" id="downloadAllHint" hidden data-i18n="downloadAllHint"></p>
+
+                <details class="advanced" id="advanced">
+                    <summary class="advanced-summary">
+                        <i class="fas fa-sliders-h" aria-hidden="true"></i>
+                        <span data-i18n="advancedLabel">Opcje zaawansowane</span>
+                        <i class="fas fa-chevron-down chev" aria-hidden="true"></i>
+                    </summary>
+                    <div class="advanced-body">
+                        <fieldset class="mode-group">
+                            <legend class="field-label" data-i18n="modeLabel">Tryb pobierania</legend>
+                            <div class="mode-row">
+                                <input type="radio" name="mode" value="http" id="modeHttp" class="mode-radio" checked>
+                                <label for="modeHttp" class="mode-pill"><i class="fas fa-bolt" aria-hidden="true"></i>
+                                    <span data-i18n="modeFast">Szybki</span></label>
+                                <input type="radio" name="mode" value="browser" id="modeBrowser" class="mode-radio">
+                                <label for="modeBrowser" class="mode-pill"><i class="fas fa-globe" aria-hidden="true"></i>
+                                    <span data-i18n="modeBrowser">Dokładny (przeglądarka systemowa)</span></label>
+                            </div>
+                            <p class="hint" id="modeHint"></p>
+                        </fieldset>
+
+                        <div class="grid-2">
+                            <div class="form-group" id="engineGroup">
+                                <label for="engine" class="field-label" data-i18n="engineLabel">Silnik przeglądarki</label>
+                                <div class="input-wrapper">
+                                    <i class="fas fa-microchip" aria-hidden="true"></i>
+                                    <select id="engine">
+                                        <option value="" data-i18n="engineAuto">Automatycznie (zalecane)</option>
+                                        <option value="webview2" data-i18n="engineWebview2">Edge WebView2</option>
+                                        <option value="edge" data-i18n="engineEdge">Microsoft Edge</option>
+                                        <option value="chrome" data-i18n="engineChrome">Google Chrome</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="existing" class="field-label" data-i18n="existingLabel">Gdy kopia tej strony już istnieje</label>
+                                <div class="input-wrapper">
+                                    <i class="fas fa-copy" aria-hidden="true"></i>
+                                    <select id="existing">
+                                        <option value="update" data-i18n="existingUpdate">Aktualizuj istniejącą kopię</option>
+                                        <option value="new" data-i18n="existingNew">Utwórz nową kopię (_v2, _v3…)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="check-row">
+                            <input type="checkbox" id="includeSubdomains" class="check">
+                            <label for="includeSubdomains"><i class="fas fa-sitemap" aria-hidden="true"></i>
+                                <span data-i18n="includeSubdomains">Pobieraj z subdomen</span></label>
+                        </div>
+                        <div class="check-row">
+                            <input type="checkbox" id="includeExternal" class="check">
+                            <label for="includeExternal"><i class="fas fa-external-link-alt" aria-hidden="true"></i>
+                                <span data-i18n="includeExternal">Pobieraj zasoby z CDN / zewnętrznych domen</span></label>
+                        </div>
+
+                        <div class="grid-3">
+                            <div class="form-group">
+                                <label for="maxPages" class="field-label" data-i18n="maxPagesLabel">Maks. stron</label>
+                                <div class="input-wrapper">
+                                    <i class="fas fa-file-alt" aria-hidden="true"></i>
+                                    <input type="number" id="maxPages" min="0" step="1" data-i18n-placeholder="noLimit" placeholder="bez limitu">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="maxTotalMB" class="field-label" data-i18n="maxTotalLabel">Maks. rozmiar łącznie (MB)</label>
+                                <div class="input-wrapper">
+                                    <i class="fas fa-hdd" aria-hidden="true"></i>
+                                    <input type="number" id="maxTotalMB" min="0" step="1" data-i18n-placeholder="noLimit" placeholder="bez limitu">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="maxFileMB" class="field-label" data-i18n="maxFileLabel">Maks. rozmiar pliku (MB)</label>
+                                <div class="input-wrapper">
+                                    <i class="fas fa-file" aria-hidden="true"></i>
+                                    <input type="number" id="maxFileMB" min="0" step="1" data-i18n-placeholder="noLimit" placeholder="bez limitu">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="cookieHeader" class="field-label" data-i18n="cookieLabel">Cookie dla stron wymagających logowania</label>
+                            <div class="input-wrapper">
+                                <i class="fas fa-key" aria-hidden="true"></i>
+                                <input type="password" id="cookieHeader" autocomplete="off" spellcheck="false"
+                                       placeholder="session=...; token=..." aria-describedby="cookieHint">
+                            </div>
+                            <p class="hint" id="cookieHint" data-i18n="cookieHint"></p>
+                        </div>
+
+                        <div class="check-row">
+                            <input type="checkbox" id="rememberOptions" class="check">
+                            <label for="rememberOptions"><i class="fas fa-save" aria-hidden="true"></i>
+                                <span data-i18n="checkboxRemember">Zapamiętaj opcje</span></label>
+                        </div>
+                    </div>
+                </details>
+            </form>
+        </section>
+
+        <section class="side">
+            <section class="panel status-panel" id="status" hidden aria-live="polite">
+                <div class="status-header">
+                    <div class="status-icon" id="statusIcon" aria-hidden="true"><i class="fas fa-spinner"></i></div>
+                    <div class="status-heading">
+                        <h2 class="status-title" id="statusTitle">Pobieranie…</h2>
+                        <div class="status-url" id="statusUrl"></div>
+                    </div>
+                    <div class="status-controls" id="runControls" hidden>
+                        <button type="button" class="btn btn-small btn-secondary" id="pauseBtn">
+                            <i class="fas fa-pause" aria-hidden="true"></i> <span id="pauseLabel" data-i18n="btnPause">Wstrzymaj</span>
+                        </button>
+                        <button type="button" class="btn btn-small btn-danger" id="cancelBtn">
+                            <i class="fas fa-stop" aria-hidden="true"></i> <span data-i18n="btnCancel">Anuluj</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="progress-block" id="progressBlock">
+                    <div class="progress-bar" role="progressbar" aria-labelledby="progressLabel" id="progressBar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div class="progress-label" id="progressLabel"></div>
+                    <dl class="metrics" id="metrics">
+                        <div><dt data-i18n="progress.speed">Prędkość</dt><dd id="metricSpeed">–</dd></div>
+                        <div><dt data-i18n="progress.elapsed">Czas</dt><dd id="metricElapsed">0:00</dd></div>
+                        <div><dt data-i18n="progress.eta">Pozostało</dt><dd id="metricEta">–</dd></div>
+                        <div><dt data-i18n="progress.queue">W kolejce</dt><dd id="metricQueue">–</dd></div>
+                    </dl>
+                    <div class="current-file" id="currentRow"><span data-i18n="progress.now">Teraz:</span> <span id="currentFile">–</span></div>
+                </div>
+
+                <div class="error-block" id="errorBlock" hidden>
+                    <p class="status-reason" id="errorReason"></p>
+                    <details class="status-tech"><summary data-i18n="err.tech">Szczegóły techniczne</summary><code id="errorTech"></code></details>
+                </div>
+
+                <ul class="notes" id="notes" hidden></ul>
+
+                <div class="mini-actions" id="finishActions" hidden>
+                    <button type="button" class="btn btn-small btn-primary" id="retryBtn" hidden><i class="fas fa-redo" aria-hidden="true"></i> <span data-i18n="btnRetry">Spróbuj ponownie</span></button>
+                    <button type="button" class="mini-btn" id="editUrlBtn" hidden><i class="fas fa-pen" aria-hidden="true"></i> <span data-i18n="btnEditUrl">Popraw adres</span></button>
+                    <button type="button" class="btn btn-small btn-primary" id="previewBtn"><i class="fas fa-play-circle" aria-hidden="true"></i> <span data-i18n="btnPreview">Podgląd offline</span></button>
+                    <button type="button" class="mini-btn" id="openPageBtn"><i class="fas fa-external-link-alt" aria-hidden="true"></i> <span data-i18n="btnOpenPage">Otwórz plik</span></button>
+                    <button type="button" class="mini-btn" id="openFolderBtn"><i class="fas fa-folder-open" aria-hidden="true"></i> <span data-i18n="btnFolder">Folder</span></button>
+                    <button type="button" class="mini-btn" id="openReportBtn"><i class="fas fa-file-alt" aria-hidden="true"></i> <span data-i18n="btnReport">Raport (JSON)</span></button>
                 </div>
 
                 <div class="stats">
-                    <div class="stat">
-                        <div class="stat-value" id="pageCount">0</div>
-                        <div class="stat-label" data-i18n="statPages">Stron</div>
-                    </div>
-                    <div class="stat">
-                        <div class="stat-value" id="assetCount">0</div>
-                        <div class="stat-label" data-i18n="statAssets">Assetów</div>
-                    </div>
-                    <div class="stat">
-                        <div class="stat-value" id="attachmentCount">0</div>
-                        <div class="stat-label" data-i18n="statFiles">Pliki</div>
-                    </div>
-                    <div class="stat">
-                        <div class="stat-value" id="bytesStat">0 B</div>
-                        <div class="stat-label" data-i18n="statBytes">Rozmiar</div>
-                    </div>
+                    <div class="stat"><div class="stat-value" id="pageCount">0</div><div class="stat-label" data-i18n="stat.pages">Strony</div></div>
+                    <div class="stat"><div class="stat-value" id="assetCount">0</div><div class="stat-label" data-i18n="stat.assets">Zasoby</div></div>
+                    <div class="stat"><div class="stat-value" id="attachmentCount">0</div><div class="stat-label" data-i18n="stat.files">Załączniki</div></div>
+                    <div class="stat"><div class="stat-value" id="bytesStat">0 B</div><div class="stat-label" data-i18n="stat.bytes">Rozmiar</div></div>
                 </div>
 
-                <div class="output-path">
-                    <div class="output-path-main"><span data-i18n="savedTo">Zapisano do:</span> <span id="outputPath">-</span></div>
-                    <div class="mini-actions" id="currentActions" style="display: none;">
-                        <button type="button" class="mini-btn open-btn" id="openFolderBtn" style="display: none;">
-                            <i class="fas fa-folder-open"></i> <span data-i18n="openFolder">Folder</span>
-                        </button>
-                        <button type="button" class="mini-btn" id="openPageBtn"><i class="fas fa-external-link-alt"></i> <span id="openPageLabel">Otwórz stronę</span></button>
-                        <button type="button" class="mini-btn" id="revealPageBtn"><i class="fas fa-search"></i> <span id="revealPageLabel">Pokaż index.html</span></button>
-                        <button type="button" class="mini-btn" id="openReportBtn"><i class="fas fa-file-alt"></i> <span id="reportLabel">Raport</span></button>
-                    </div>
+                <div class="output-path" id="outputRow"><span id="outputLabel" data-i18n="output.saving">Zapis do:</span> <span id="outputPath">–</span></div>
+
+
+                <details class="log-wrap">
+                    <summary data-i18n="logTitle">Dziennik</summary>
+                    <ol class="log" id="log"></ol>
+                </details>
+            </section>
+
+            <section class="panel history-panel" aria-labelledby="historyTitle">
+                <div class="history-head">
+                    <h2 id="historyTitle"><i class="fas fa-history" aria-hidden="true"></i> <span data-i18n="historyTitle">Ostatnio pobrane</span></h2>
+                    <button type="button" class="mini-btn" id="clearHistoryBtn"><i class="fas fa-trash" aria-hidden="true"></i> <span data-i18n="btnClearHistory">Wyczyść historię</span></button>
                 </div>
+                <ul class="history-list" id="historyList"></ul>
+            </section>
+        </section>
+    </main>
 
-                <div class="log" id="log"></div>
-            </div>
-        </div>
+    <div class="toast" id="toast" role="status" hidden></div>
 
-        <div class="history-panel" id="historyPanel">
-            <div class="history-head">
-                <h2><i class="fas fa-history"></i> <span id="historyTitle">Ostatnio pobrane</span></h2>
-                <button type="button" class="mini-btn" id="clearHistoryBtn"><i class="fas fa-trash"></i> <span id="clearHistoryLabel">Wyczyść</span></button>
-            </div>
-            <div class="history-list" id="historyList">
-                <div class="history-empty" id="historyEmpty">Brak historii.</div>
+    <div class="modal-backdrop" id="modal" hidden>
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" aria-describedby="modalBody">
+            <h2 id="modalTitle"></h2>
+            <div id="modalBody"></div>
+            <div class="modal-actions">
+                <button type="button" class="btn btn-secondary" id="modalCancel"></button>
+                <button type="button" class="btn btn-danger" id="modalConfirm"></button>
             </div>
         </div>
     </div>
-    
+
     <script src="app.js"></script>
 </body>
 </html>
-
