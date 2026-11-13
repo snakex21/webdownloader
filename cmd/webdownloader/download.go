@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -123,7 +126,9 @@ func (a *api) runDownload(
 	refresh bool,
 ) {
 	defer a.clearActiveDownload(id)
+	log.Printf("run %s: start %s (mode=%s depth=%d attachments=%t)", id, req.URL, mode, req.Depth, req.DownloadAll)
 
+	events := newEventLimiter()
 	_, _ = downloader.Download(downloader.Options{
 		Context:               ctx,
 		Pause:                 pause,
@@ -147,18 +152,55 @@ func (a *api) runDownload(
 			a.fire("progress", id, event)
 		},
 		OnAsset: func(assetURL, kind string) {
-			a.fire("asset", id, map[string]string{"url": assetURL, "kind": kind})
+			// Counts travel with progress events; these only feed the log,
+			// so a burst is thinned out instead of flooding the UI thread.
+			if events.allowAsset() {
+				a.fire("asset", id, map[string]string{"url": assetURL, "kind": kind})
+			}
 		},
 		OnError: func(pageURL string, err error) {
-			a.fire("error", id, map[string]string{
-				"url":   pageURL,
-				"error": err.Error(),
-			})
+			if events.allowError() {
+				a.fire("error", id, map[string]string{
+					"url":   pageURL,
+					"error": err.Error(),
+				})
+			}
 		},
 		OnComplete: func(summary downloader.Summary) {
+			a.markCompleted(id)
+			log.Printf("run %s: finished pages=%d assets=%d cancelled=%t failed=%t in %s",
+				id, summary.Pages, summary.Assets, summary.Cancelled, summary.Failed, summary.Elapsed.Round(time.Millisecond))
 			a.fire("complete", id, summary)
 		},
 	})
+}
+
+// eventLimiter thins out per-file events: WebView2 delivers every event as
+// a posted window message, and a flood of them delays clicks (Cancel).
+type eventLimiter struct {
+	mu        sync.Mutex
+	lastAsset time.Time
+	errors    int
+}
+
+func newEventLimiter() *eventLimiter { return &eventLimiter{} }
+
+func (l *eventLimiter) allowAsset() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if time.Since(l.lastAsset) < 100*time.Millisecond {
+		return false
+	}
+	l.lastAsset = time.Now()
+	return true
+}
+
+// allowError keeps the first 200 errors (all are in download-errors.log).
+func (l *eventLimiter) allowError() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.errors++
+	return l.errors <= 200
 }
 
 func (a *api) setActiveDownload(
@@ -177,9 +219,24 @@ func (a *api) setActiveDownload(
 	a.activeRunID = id
 	a.activePause = pause
 	if a.running == nil {
-		a.running = map[string]string{}
+		a.running = map[string]*runInfo{}
 	}
-	a.running[id] = outputDir
+	a.running[id] = &runInfo{dir: outputDir, done: make(chan struct{})}
+}
+
+// runInfo tracks a download goroutine until it really ends.
+type runInfo struct {
+	dir       string
+	done      chan struct{}
+	completed atomic.Bool
+}
+
+func (a *api) markCompleted(id string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if r := a.running[id]; r != nil {
+		r.completed.Store(true)
+	}
 }
 
 // isActiveOutput reports whether dir is the folder of the running download.
@@ -193,8 +250,8 @@ func (a *api) isActiveOutput(dir string) bool {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	for _, active := range a.running {
-		if right, err := filepath.Abs(active); err == nil && samePath(filepath.Clean(left), filepath.Clean(right)) {
+	for _, run := range a.running {
+		if right, err := filepath.Abs(run.dir); err == nil && samePath(filepath.Clean(left), filepath.Clean(right)) {
 			return true
 		}
 	}
@@ -207,6 +264,9 @@ func (a *api) clearActiveDownload(id string) {
 
 	// The folder stays busy until the goroutine has really finished, even
 	// after Cancel cleared the active run.
+	if r := a.running[id]; r != nil {
+		close(r.done)
+	}
 	delete(a.running, id)
 	if a.activeRunID != id {
 		return
@@ -218,18 +278,46 @@ func (a *api) clearActiveDownload(id string) {
 
 func (a *api) cancel(runID string) string {
 	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	if a.activeRun == nil || (runID != "" && runID != a.activeRunID) {
+		active := a.activeRunID
+		a.mu.Unlock()
+		log.Printf("cancel %q ignored: active run is %q", runID, active)
 		return ""
 	}
-
 	a.activeRun()
 	id := a.activeRunID
+	run := a.running[id]
 	a.activeRun = nil
 	a.activeRunID = ""
 	a.activePause = nil
+	a.mu.Unlock()
+
+	log.Printf("run %s: cancel requested", id)
+	if run != nil {
+		go a.cancelWatchdog(id, run, cancelGrace)
+	}
 	return id
+}
+
+// cancelGrace is how long a cancelled run may take to report back.
+const cancelGrace = 2 * time.Second
+
+// cancelWatchdog makes sure the UI leaves the "downloading" state after a
+// cancel even if the run does not stop in time: it then logs every
+// goroutine's stack (to find what blocked) and reports the run as cancelled.
+func (a *api) cancelWatchdog(id string, run *runInfo, grace time.Duration) {
+	select {
+	case <-run.done:
+		return
+	case <-time.After(grace):
+	}
+	if run.completed.Load() {
+		return
+	}
+	buf := make([]byte, 1<<20)
+	n := runtime.Stack(buf, true)
+	log.Printf("run %s: still running %s after cancel; goroutines:\n%s", id, grace, buf[:n])
+	a.fire("complete", id, map[string]any{"Cancelled": true, "Forced": true})
 }
 
 func (a *api) pause(runID string) string {
@@ -240,6 +328,7 @@ func (a *api) pause(runID string) string {
 		return ""
 	}
 	a.activePause.Pause()
+	log.Printf("run %s: paused", a.activeRunID)
 	return a.activeRunID
 }
 
@@ -251,6 +340,7 @@ func (a *api) resume(runID string) string {
 		return ""
 	}
 	a.activePause.Resume()
+	log.Printf("run %s: resumed", a.activeRunID)
 	return a.activeRunID
 }
 

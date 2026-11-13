@@ -19,9 +19,12 @@ type api struct {
 	activeRun   context.CancelFunc
 	activeRunID string
 	activePause *downloader.PauseController
-	// running maps run IDs to their output folders until each run's
-	// goroutine ends: those folders must not be deleted or reused.
-	running map[string]string
+	// running tracks each run's output folder until its goroutine ends:
+	// those folders must not be deleted or reused.
+	running map[string]*runInfo
+
+	// onFire receives events instead of the webview in tests.
+	onFire func(event, id string, payload any)
 
 	previewMu sync.Mutex
 	previews  map[string]*preview.Server

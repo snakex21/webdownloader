@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestChooseOutputDir(t *testing.T) {
@@ -45,4 +46,36 @@ func TestIsActiveOutput(t *testing.T) {
 	if a.isActiveOutput(dir) {
 		t.Fatal("folder still busy after the run finished")
 	}
+}
+
+func TestCancelWatchdogUnblocksUI(t *testing.T) {
+	var fired []string
+	a := &api{onFire: func(event, id string, payload any) { fired = append(fired, event+":"+id) }}
+
+	stuck := &runInfo{done: make(chan struct{})}
+	a.cancelWatchdog("stuck", stuck, 20*time.Millisecond)
+	if len(fired) != 1 || fired[0] != "complete:stuck" {
+		t.Fatalf("stuck run: fired %v, want a forced complete", fired)
+	}
+
+	fired = nil
+	finished := &runInfo{done: make(chan struct{})}
+	close(finished.done)
+	a.cancelWatchdog("ok", finished, 20*time.Millisecond)
+	if len(fired) != 0 {
+		t.Fatalf("finished run must not get a second complete: %v", fired)
+	}
+}
+
+func TestCancelReportsAndStopsActiveRun(t *testing.T) {
+	a := &api{onFire: func(string, string, any) {}}
+	cancelled := false
+	a.setActiveDownload("r1", func() { cancelled = true }, nil, t.TempDir())
+	if got := a.cancel("other"); got != "" || cancelled {
+		t.Fatalf("cancel of another id must be ignored (got %q)", got)
+	}
+	if got := a.cancel("r1"); got != "r1" || !cancelled {
+		t.Fatalf("cancel(r1) = %q, cancelled=%v", got, cancelled)
+	}
+	a.clearActiveDownload("r1")
 }

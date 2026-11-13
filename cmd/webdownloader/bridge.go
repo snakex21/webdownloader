@@ -46,6 +46,12 @@ func (a *api) fire(event, id string, payload any) {
 	if event == "" {
 		return
 	}
+	if a.w == nil { // tests
+		if a.onFire != nil {
+			a.onFire(event, id, payload)
+		}
+		return
+	}
 
 	wrapped := map[string]any{
 		"id":      id,
