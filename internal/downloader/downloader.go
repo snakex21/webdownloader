@@ -638,11 +638,25 @@ func shouldDownloadAsset(absURL, baseDomain string, opts Options) bool {
 	return opts.IncludeExternalAssets
 }
 
+// sameScopeHost reports whether host belongs to the site being mirrored.
+// "www.example.com" and "example.com" are the same site; other subdomains
+// count only with IncludeSubdomains.
 func sameScopeHost(host, baseDomain string, opts Options) bool {
-	if strings.EqualFold(host, baseDomain) {
+	h, b := siteHost(host), siteHost(baseDomain)
+	if h == b {
 		return true
 	}
-	return opts.IncludeSubdomains && isSubdomain(host, baseDomain)
+	return opts.IncludeSubdomains && isSubdomain(h, b)
+}
+
+// siteHost lower-cases a host name and drops a trailing dot and a leading
+// "www." label.
+func siteHost(host string) string {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	if rest, ok := strings.CutPrefix(host, "www."); ok && strings.Contains(rest, ".") {
+		return rest
+	}
+	return host
 }
 
 // isSubdomain reports whether host is a subdomain of base. base may be
