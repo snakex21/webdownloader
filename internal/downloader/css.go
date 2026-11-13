@@ -190,12 +190,13 @@ func rewriteCSSFile(
 		if !shouldDownloadAsset(assetURL, domain, opts) {
 			continue
 		}
-		dl, ok := downloadAssetFileWithLimit(fetcher, opts.OutputDir, assetURL, opts.MaxFileBytes, downloadedAssets)
-		if !ok {
+		dl, dlErr := downloadAssetFileWithLimit(fetcher, opts.OutputDir, assetURL, opts.MaxFileBytes, downloadedAssets)
+		if dlErr != nil {
+			reportAssetError(opts.Context, events, assetURL, dlErr)
 			continue
 		}
 		downloadedAssets[assetURL] = struct{}{}
-		totalBytes.Add(int64(len(dl.body)))
+		totalBytes.Add(dl.size)
 		if !dl.reused {
 			events.OnAsset(assetURL, "asset")
 			added++
