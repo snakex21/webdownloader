@@ -132,3 +132,52 @@ func TestFolderInfoAsyncAnswersWithEvent(t *testing.T) {
 		t.Fatalf("payload = %#v", got[0].payload)
 	}
 }
+
+// deleteFolder runs off the UI thread and answers with an event.
+func TestDeleteFolderAsyncAnswersWithEvent(t *testing.T) {
+	previous, previousTrash := appStorage, trashFolder
+	release := make(chan struct{})
+	trashFolder = func(p string) error { <-release; return os.RemoveAll(p) }
+	t.Cleanup(func() { appStorage = previous; trashFolder = previousTrash })
+	base := t.TempDir()
+	target := filepath.Join(base, "example.com")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "download-report.json"), []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	appStorage.prefsFile = filepath.Join(base, "prefs.json")
+	data, _ := jsonMarshalPrefs(map[string]any{"history": []any{map[string]any{"id": "1", "output": target}}})
+	if err := writePrefsBytes(data); err != nil {
+		t.Fatal(err)
+	}
+
+	a, events := recordingAPI()
+	returned := make(chan string, 1)
+	go func() { returned <- a.deleteFolderAsync("del1", target) }()
+	select {
+	case id := <-returned: // the slow Recycle Bin move must not block the call
+		if id != "del1" {
+			t.Fatalf("returned %q", id)
+		}
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("deleteFolderAsync blocked until the folder was deleted")
+	}
+	close(release)
+	deadline := time.Now().Add(5 * time.Second)
+	for len(events()) == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	got := events()
+	if len(got) != 1 || got[0].name != "deleteFolder" || got[0].id != "del1" {
+		t.Fatalf("events = %+v", got)
+	}
+	if res, ok := got[0].payload.(deleteResult); !ok || !res.OK {
+		t.Fatalf("payload = %#v", got[0].payload)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("folder still there: %v", err)
+	}
+}

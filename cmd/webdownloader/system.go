@@ -96,23 +96,34 @@ func (a *api) revealPath(path string) error {
 // trashFolder is replaced in tests so they do not fill the Recycle Bin.
 var trashFolder = moveToTrash
 
+// deleteFolderAsync moves a folder to the Recycle Bin off the UI thread
+// (the shell takes seconds for a large copy, and the window would freeze):
+// it returns at once and delivers a deleteResult as a "deleteFolder" event
+// carrying reqID.
+func (a *api) deleteFolderAsync(reqID, path string) string {
+	go func() {
+		a.fire("deleteFolder", reqID, a.deleteFolder(path))
+	}()
+	return reqID
+}
+
 // deleteFolder moves a download folder recorded in history to the Recycle
 // Bin. A folder that is being downloaded right now is refused.
-func (a *api) deleteFolder(path string) string {
+func (a *api) deleteFolder(path string) deleteResult {
 	target, err := validateDeleteTarget(path, readPrefsSnapshot())
 	if err != nil {
-		return fmt.Sprintf("error: %v", err)
+		return deleteResult{Error: err.Error()}
 	}
 	if a.isActiveOutput(target) {
-		return "error: busy"
+		return deleteResult{Busy: true, Error: "busy"}
 	}
 	if _, err := os.Lstat(target); os.IsNotExist(err) {
-		return "ok"
+		return deleteResult{OK: true}
 	}
 	if err := trashFolder(target); err != nil {
-		return fmt.Sprintf("error: %v", err)
+		return deleteResult{Error: err.Error()}
 	}
-	return "ok"
+	return deleteResult{OK: true}
 }
 
 // folderInfo is shown in the delete confirmation.

@@ -64,6 +64,8 @@ func TestAppJSReadsOnlyPayloadFields(t *testing.T) {
 		{"error", block("listeners.error.push"), `\bd\.(\w+)`, errorPayload{}},
 		{"complete", block("async function finishRun"), `\bsummary\.(\w+)`, full},
 		{"failedFiles", block("function failedNote"), `\bf\.(\w+)`, failedFilePayload{Status: 1}},
+		{"folderInfo", block("async function deleteHistoryItem"), `\binfo\.(\w+)`, folderInfo{}},
+		{"deleteFolder", block("async function deleteHistoryItem"), `\bresult\.(\w+)`, deleteResult{Busy: true, Error: "e"}},
 	}
 	for _, tc := range cases {
 		keys := jsonKeys(t, tc.payload)

@@ -81,23 +81,27 @@ window._fireAsset = d => fire('asset', d);
 window._fireError = d => fire('error', d);
 window._fireComplete = d => fire('complete', d);
 
-// api_folderInfo walks the folder off the UI thread and answers with a
-// folderInfo event carrying the request id.
-const folderInfoWaiters = new Map();
-let folderInfoSeq = 0;
-window._fireFolderInfo = d => {
-    const done = folderInfoWaiters.get(d && d.id);
+// Slow bindings (api_folderInfo, api_deleteFolder) work off the UI thread:
+// they return at once and answer with an event carrying the request id.
+const asyncWaiters = new Map();
+let asyncSeq = 0;
+function settleAsync(d) {
+    const done = asyncWaiters.get(d && d.id);
     if (done) done(d.payload || null);
-};
-function folderInfo(path) {
+}
+window._fireFolderInfo = settleAsync;
+window._fireDeleteFolder = settleAsync;
+function asyncCall(fn, timeoutMs, ...args) {
     return new Promise(resolve => {
-        const id = 'fi' + (++folderInfoSeq);
-        const finish = info => { clearTimeout(timer); folderInfoWaiters.delete(id); resolve(info); };
-        const timer = setTimeout(() => finish(null), 120000);
-        folderInfoWaiters.set(id, finish);
-        Promise.resolve(window.api_folderInfo(id, path)).catch(() => finish(null));
+        const id = 'rq' + (++asyncSeq);
+        const finish = res => { clearTimeout(timer); asyncWaiters.delete(id); resolve(res); };
+        const timer = setTimeout(() => finish(null), timeoutMs);
+        asyncWaiters.set(id, finish);
+        Promise.resolve(window[fn](id, ...args)).catch(() => finish(null));
     });
 }
+const folderInfo = path => asyncCall('api_folderInfo', 120000, path);
+const deleteFolder = path => asyncCall('api_deleteFolder', 600000, path);
 
 // ---- DOM -----------------------------------------------------------------
 const $ = id => document.getElementById(id);
@@ -459,9 +463,9 @@ async function deleteHistoryItem(item) {
     const ok = await confirmDialog({ title: tt('delete.title'), body, confirmLabel: info && info.exists ? tt('btnConfirmDelete') : tt('btnDelete'), confirmDisabled: blocked });
     if (!ok) return;
     if (item.output && info && info.exists) {
-        const result = await window.api_deleteFolder(item.output).catch(e => 'error: ' + e);
-        if (result !== 'ok') {
-            toast(result === 'error: busy' ? tt('delete.busy') : tt('log.error') + ' ' + result);
+        const result = await deleteFolder(item.output);
+        if (!result || !result.ok) {
+            toast(result && result.busy ? tt('delete.busy') : tt('log.error') + ' ' + ((result && result.error) || 'timeout'));
             return;
         }
     }

@@ -120,3 +120,10 @@ func nonNil(list []string) []string {
 	}
 	return list
 }
+
+// deleteResult is the payload of a "deleteFolder" event.
+type deleteResult struct {
+	OK    bool   `json:"ok"`
+	Busy  bool   `json:"busy,omitempty"`
+	Error string `json:"error,omitempty"`
+}

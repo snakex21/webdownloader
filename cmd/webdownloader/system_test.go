@@ -41,12 +41,12 @@ func TestDeleteFolderRemovesRecordedDownloadDirectly(t *testing.T) {
 
 	busy := &api{}
 	busy.setActiveDownload("run", func() {}, nil, target)
-	if result := busy.deleteFolder(target); result != "error: busy" {
-		t.Fatalf("deleteFolder() of a running download = %q, want refusal", result)
+	if result := busy.deleteFolder(target); result.OK || !result.Busy {
+		t.Fatalf("deleteFolder() of a running download = %+v, want refusal", result)
 	}
 
-	if result := (&api{}).deleteFolder(target); result != "ok" {
-		t.Fatalf("deleteFolder() = %q", result)
+	if result := (&api{}).deleteFolder(target); !result.OK {
+		t.Fatalf("deleteFolder() = %+v", result)
 	}
 	if len(trashed) != 1 || trashed[0] != target {
 		t.Fatalf("folder must go through the Recycle Bin, trashed = %v", trashed)

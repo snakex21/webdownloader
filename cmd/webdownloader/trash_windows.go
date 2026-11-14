@@ -4,6 +4,8 @@ package main
 
 import (
 	"fmt"
+	"runtime"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -32,8 +34,15 @@ const (
 )
 
 // moveToTrash moves path to the Recycle Bin, so a deleted download can be
-// restored from there.
+// restored from there. It runs on a worker goroutine (not the UI thread),
+// so it initializes COM for its own OS thread, as shell calls expect.
 func moveToTrash(path string) error {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	// S_FALSE (already initialized) must be balanced by CoUninitialize too.
+	if err := windows.CoInitializeEx(0, windows.COINIT_APARTMENTTHREADED|windows.COINIT_DISABLE_OLE1DDE); err == nil || err == syscall.Errno(windows.S_FALSE) {
+		defer windows.CoUninitialize()
+	}
 	from, err := windows.UTF16FromString(path)
 	if err != nil {
 		return err
