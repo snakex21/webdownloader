@@ -114,7 +114,9 @@ func finishOutputPath(baseDir, site string, u *url.URL, rel string) (string, err
 
 // hostPrefix returns "" for URLs of the mirrored site (www and the bare
 // domain count as one site, the port is ignored) and _hosts/<host> for any
-// other host. An empty site disables the prefix (single-host layout).
+// other host, _hosts/<host>_<port> when the port is not the scheme's
+// default (two servers on one host are different sites). An empty site
+// disables the prefix (single-host layout).
 func hostPrefix(site string, u *url.URL) (string, error) {
 	if site == "" || u.Hostname() == "" {
 		return "", nil
@@ -122,6 +124,9 @@ func hostPrefix(site string, u *url.URL) (string, error) {
 	h := siteHost(u.Hostname())
 	if h == siteHost(site) {
 		return "", nil
+	}
+	if port := u.Port(); port != "" && !isDefaultPort(u.Scheme, port) {
+		h += "_" + port
 	}
 	name := strings.Map(func(r rune) rune {
 		if r <= ' ' || strings.ContainsRune(`<>:"/\|?*%`, r) {
@@ -133,6 +138,17 @@ func hostPrefix(site string, u *url.URL) (string, error) {
 		return "", fmt.Errorf("unsafe host folder %q", h)
 	}
 	return hostsDir + "/" + name, nil
+}
+
+// isDefaultPort reports whether port is the default one of scheme.
+func isDefaultPort(scheme, port string) bool {
+	switch strings.ToLower(scheme) {
+	case "http":
+		return port == "80"
+	case "https":
+		return port == "443"
+	}
+	return false
 }
 
 // maxSegmentLen caps one file or folder name (in bytes, so well under

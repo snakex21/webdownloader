@@ -155,13 +155,15 @@ func TestSubdomainAndCDNFilesDoNotCollide(t *testing.T) {
 	if sum.Pages != 3 {
 		t.Errorf("pages = %d, want 3 (home, blog home, apex about)", sum.Pages)
 	}
+	// Other hosts on a non-default port keep the port in their folder.
+	blogDir, cdnDir := "_hosts/blog.site.test_"+port, "_hosts/cdn.other.test_"+port
 	want := map[string]string{
-		"index.html":                       "site home",
-		"about/index.html":                 "about",
-		"_hosts/blog.site.test/index.html": "blog home",
-		"lib/app.js":                       "js from www.site.test",
-		"_hosts/cdn.other.test/lib/app.js": "js from cdn.other.test",
-		"_hosts/blog.site.test/lib/app.js": "js from blog.site.test",
+		"index.html":            "site home",
+		"about/index.html":      "about",
+		blogDir + "/index.html": "blog home",
+		"lib/app.js":            "js from www.site.test",
+		cdnDir + "/lib/app.js":  "js from cdn.other.test",
+		blogDir + "/lib/app.js": "js from blog.site.test",
 	}
 	for rel, text := range want {
 		data, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(rel)))
@@ -170,12 +172,12 @@ func TestSubdomainAndCDNFilesDoNotCollide(t *testing.T) {
 		}
 	}
 	home, _ := os.ReadFile(filepath.Join(out, "index.html"))
-	for _, ref := range []string{`src="lib/app.js"`, `src="_hosts/cdn.other.test/lib/app.js"`, `href="_hosts/blog.site.test/index.html"`, `href="about/index.html"`} {
+	for _, ref := range []string{`src="lib/app.js"`, `src="` + cdnDir + `/lib/app.js"`, `href="` + blogDir + `/index.html"`, `href="about/index.html"`} {
 		if !strings.Contains(string(home), ref) {
 			t.Errorf("home page lacks %s:\n%s", ref, home)
 		}
 	}
-	blog, _ := os.ReadFile(filepath.Join(out, "_hosts", "blog.site.test", "index.html"))
+	blog, _ := os.ReadFile(filepath.Join(out, filepath.FromSlash(blogDir), "index.html"))
 	if !strings.Contains(string(blog), `src="lib/app.js"`) {
 		t.Errorf("blog page script not rewritten to its own copy:\n%s", blog)
 	}

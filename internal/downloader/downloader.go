@@ -284,7 +284,7 @@ func canonicalURL(raw string) string {
 	u.Fragment, u.RawFragment = "", ""
 	u.Scheme = strings.ToLower(u.Scheme)
 	host, port := siteHost(u.Hostname()), u.Port()
-	if (u.Scheme == "http" && port == "80") || (u.Scheme == "https" && port == "443") {
+	if isDefaultPort(u.Scheme, port) {
 		port = ""
 	}
 	if port != "" {

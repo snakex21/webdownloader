@@ -192,3 +192,30 @@ func TestOutputPathsRejectWindowsSpecialNames(t *testing.T) {
 		}
 	}
 }
+
+// Files of other hosts go to _hosts/<host>, with the port when it is not
+// the scheme's default; the mirrored site itself ignores the port.
+func TestHostFolderIncludesNonDefaultPort(t *testing.T) {
+	l := layout{dir: "out", site: "example.com"}
+	cases := map[string]string{
+		"https://cdn.test/a.js":          "_hosts/cdn.test/a.js",
+		"https://cdn.test:443/a.js":      "_hosts/cdn.test/a.js",
+		"http://cdn.test:80/a.js":        "_hosts/cdn.test/a.js",
+		"https://cdn.test:8443/a.js":     "_hosts/cdn.test_8443/a.js",
+		"http://cdn.test:443/a.js":       "_hosts/cdn.test_443/a.js",
+		"http://www.example.com:8080/a":  "a",
+		"https://example.com/lib/x.js":   "lib/x.js",
+		"https://[::1]:9000/a.js":        "_hosts/__1_9000/a.js",
+		"https://blog.example.com:81/x/": "_hosts/blog.example.com_81/x/index",
+	}
+	for in, want := range cases {
+		got, err := l.assetPath(in)
+		if err != nil {
+			t.Errorf("assetPath(%q): %v", in, err)
+			continue
+		}
+		if got != filepath.Join("out", filepath.FromSlash(want)) {
+			t.Errorf("assetPath(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
