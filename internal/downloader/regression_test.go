@@ -503,3 +503,72 @@ func TestFirstPageTargetStopsOnCancel(t *testing.T) {
 		t.Fatalf("took %s after cancel", d)
 	}
 }
+
+// A stylesheet whose name does not say CSS (style.php, recognised by its
+// Content-Type in the first run) is also finished on resume: the reused
+// copy has no Content-Type, but it is linked as a stylesheet.
+func TestResumeRewritesExtensionlessCSS(t *testing.T) {
+	var cssHits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<link rel="stylesheet" href="/style.php?theme=dark"><p>home</p>`)
+		case "/style.php", "/more.php":
+			cssHits.Add(1)
+			w.Header().Set("Content-Type", "text/css")
+			if r.URL.Path == "/more.php" {
+				fmt.Fprint(w, `.m{background:url(/img/icon.png)}`)
+				return
+			}
+			fmt.Fprint(w, rawPHPCSS)
+		case "/img/bg.png", "/img/icon.png":
+			fmt.Fprint(w, "PNG")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	out := t.TempDir()
+	// What an interrupted run leaves: both stylesheets saved as served.
+	styleFile := filepath.Join(out, "style__theme_dark.php")
+	moreFile := filepath.Join(out, "more.php")
+	if err := os.WriteFile(styleFile, []byte(rawPHPCSS), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(moreFile, []byte(`.m{background:url(/img/icon.png)}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sum, err := Download(Options{URL: srv.URL + "/", OutputDir: out}, Events{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cssHits.Load() != 0 {
+		t.Errorf("complete stylesheets downloaded again (%d)", cssHits.Load())
+	}
+	if sum.Errors != 0 {
+		t.Errorf("errors: %+v", sum.FailedFiles)
+	}
+	for _, rel := range []string{"img/bg.png", "img/icon.png"} {
+		if _, err := os.Stat(filepath.Join(out, filepath.FromSlash(rel))); err != nil {
+			t.Errorf("%s not fetched on resume", rel)
+		}
+	}
+	css, _ := os.ReadFile(styleFile)
+	if !strings.Contains(string(css), "url(img/bg.png)") || !strings.Contains(string(css), "more.php") || strings.Contains(string(css), "url(/img/") {
+		t.Errorf("stylesheet not rewritten:\n%s", css)
+	}
+	more, _ := os.ReadFile(moreFile)
+	if !strings.Contains(string(more), "url(img/icon.png)") {
+		t.Errorf("imported stylesheet not rewritten:\n%s", more)
+	}
+	home, _ := os.ReadFile(filepath.Join(out, "index.html"))
+	if !strings.Contains(string(home), `href="style__theme_dark.php"`) {
+		t.Errorf("page does not link the local stylesheet:\n%s", home)
+	}
+}
+
+const rawPHPCSS = `@import url("/more.php");
+body { background: url(/img/bg.png); }`

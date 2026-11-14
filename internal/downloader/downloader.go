@@ -460,6 +460,19 @@ func (c *crawler) probePage(pageURL string) bool {
 // asset is out of scope or failed. Speculative URLs (guessed from string
 // literals) fail silently.
 func (c *crawler) fetchAsset(assetURL, pageURL string, speculative bool) (string, bool) {
+	return c.fetchAssetAs(assetURL, pageURL, speculative, "")
+}
+
+// fetchStylesheet is fetchAsset for a reference that names a stylesheet
+// (<link rel="stylesheet">, @import): a copy reused from an earlier run is
+// treated as CSS even when neither its name nor a response says so.
+func (c *crawler) fetchStylesheet(assetURL, pageURL string) (string, bool) {
+	return c.fetchAssetAs(assetURL, pageURL, false, "css")
+}
+
+// fetchAssetAs is fetchAsset with the kind the reference implies ("" when
+// it implies none), used for files whose kind is otherwise unknown.
+func (c *crawler) fetchAssetAs(assetURL, pageURL string, speculative bool, kindHint string) (string, bool) {
 	if !isHTTPURL(assetURL) {
 		return "", false
 	}
@@ -519,7 +532,7 @@ func (c *crawler) fetchAsset(assetURL, pageURL string, speculative bool) (string
 		c.assetsN.Add(1)
 		c.events.OnAsset(assetURL, "asset")
 	}
-	c.postProcess(assetURL, pageURL, dl)
+	c.postProcess(assetURL, pageURL, dl, kindHint)
 	return dl.path, true
 }
 
@@ -555,15 +568,20 @@ func (c *crawler) storeCaptured(r capturedResource, pageURL string) {
 	c.totalBytes.Add(int64(len(r.Body)))
 	c.assetsN.Add(1)
 	c.events.OnAsset(r.URL, "asset")
-	c.postProcess(r.URL, pageURL, downloadResult{path: p, size: int64(len(r.Body)), body: r.Body, contentType: r.MimeType})
+	c.postProcess(r.URL, pageURL, downloadResult{path: p, size: int64(len(r.Body)), body: r.Body, contentType: r.MimeType}, "")
 }
 
 // postProcess rewrites CSS and mines scripts / JSON for more references.
 // Files reused from an earlier run are read back: scripts and JSON for
 // scanning, CSS to finish a rewrite that run may not have completed
-// (references already pointing at local files are kept).
-func (c *crawler) postProcess(assetURL, pageURL string, dl downloadResult) {
+// (references already pointing at local files are kept). A reused file has
+// no Content-Type, so kindHint (the kind its reference implies) classifies
+// one whose name does not (style.php linked as a stylesheet).
+func (c *crawler) postProcess(assetURL, pageURL string, dl downloadResult, kindHint string) {
 	kind := assetKind(dl.path, dl.contentType)
+	if kind == "" && dl.contentType == "" {
+		kind = kindHint
+	}
 	if kind == "" {
 		return
 	}
@@ -573,7 +591,7 @@ func (c *crawler) postProcess(assetURL, pageURL string, dl downloadResult) {
 		}
 		if dl.body == nil {
 			body, err := readOutputFile(c.opts.OutputDir, dl.path)
-			if err != nil {
+			if err != nil || looksLikeHTML(body) {
 				return
 			}
 			_, _ = c.rewriteCSS(dl.path, string(body), assetURL, true)
@@ -839,7 +857,13 @@ func (c *crawler) fetchPageAssets(doc *goquery.Document, refs []AssetRef, render
 		if isEmbeddedDocumentRef(ref) && !sameScopeAssetURL(assetURL, c.domain, c.opts) {
 			continue
 		}
-		localPath, ok := c.fetchAsset(assetURL, baseURL, false)
+		var localPath string
+		var ok bool
+		if ref.Stylesheet {
+			localPath, ok = c.fetchStylesheet(assetURL, baseURL)
+		} else {
+			localPath, ok = c.fetchAsset(assetURL, baseURL, false)
+		}
 		if !ok {
 			continue
 		}

@@ -15,6 +15,9 @@ type AssetRef struct {
 	Tag  string // e.g. "img", "link", "script", "source", "video"
 	Attr string // e.g. "src", "href", "poster", "srcset"
 	URL  string // the original (non-absolute) URL value (first URL if srcset)
+	// Stylesheet is set for <link rel="stylesheet">: the file is CSS even
+	// when its name does not say so (style.php).
+	Stylesheet bool
 }
 
 // RewriteAssets parses the given HTML, returns a *goquery.Document ready to
@@ -33,29 +36,30 @@ func RewriteAssets(html string) (*goquery.Document, []AssetRef, error) {
 	seen := make(map[string]int) // key -> index in `out`
 	var out []AssetRef
 
-	collect := func(sel *goquery.Selection, tag, attr string) {
+	collect := func(sel *goquery.Selection, tag, attr string) *AssetRef {
 		s, exists := sel.Attr(attr)
 		if !exists {
-			return
+			return nil
 		}
 		// srcset is a comma-separated list of URL [descriptor] entries;
 		// pick the first URL only.
 		if attr == "srcset" {
 			first, _ := firstSrcsetURL(s)
 			if first == "" {
-				return
+				return nil
 			}
 			s = first
 		}
 		if !isDownloadableAssetRef(s) {
-			return
+			return nil
 		}
 		key := tag + "|" + attr + "|" + s
-		if _, ok := seen[key]; ok {
-			return
+		if i, ok := seen[key]; ok {
+			return &out[i]
 		}
 		seen[key] = len(out)
 		out = append(out, AssetRef{Tag: tag, Attr: attr, URL: s})
+		return &out[len(out)-1]
 	}
 
 	// Standard asset references.
@@ -71,15 +75,24 @@ func RewriteAssets(html string) (*goquery.Document, []AssetRef, error) {
 		lh := strings.ToLower(h)
 		rel, _ := s.Attr("rel")
 		rel = strings.ToLower(rel)
+		stylesheet := false
+		for _, r := range strings.Fields(rel) {
+			stylesheet = stylesheet || r == "stylesheet"
+		}
+		mark := func(ref *AssetRef) {
+			if ref != nil && stylesheet {
+				ref.Stylesheet = true
+			}
+		}
 		// Stylesheets, preloads, prefetch, modulepreload, icons, manifests…
 		if strings.HasSuffix(lh, ".css") {
-			collect(s, "link", "href")
+			mark(collect(s, "link", "href"))
 			return
 		}
 		switch rel {
 		case "preload", "prefetch", "modulepreload", "icon", "shortcut icon",
 			"apple-touch-icon", "manifest", "stylesheet":
-			collect(s, "link", "href")
+			mark(collect(s, "link", "href"))
 		}
 	})
 

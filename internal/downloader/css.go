@@ -197,13 +197,20 @@ func (c *crawler) rewriteCSS(cssPath, body, cssURL string, fromDisk bool) (int, 
 		if aErr != nil {
 			continue
 		}
+		isImport := hasPrefixFold(body[ref.Offset:], "@import")
 		if fromDisk && c.isLocalCSSRef(cssPath, ref.URL) {
-			if assetKind(urlPath(ref.URL), "") == "css" {
-				c.fetchAsset(assetURL, cssURL, false) // finish nested stylesheets too
+			if isImport || assetKind(urlPath(ref.URL), "") == "css" {
+				c.fetchStylesheet(assetURL, cssURL) // finish nested stylesheets too
 			}
 			continue
 		}
-		localPath, ok := c.fetchAsset(assetURL, cssURL, false)
+		var localPath string
+		var ok bool
+		if isImport {
+			localPath, ok = c.fetchStylesheet(assetURL, cssURL)
+		} else {
+			localPath, ok = c.fetchAsset(assetURL, cssURL, false)
+		}
 		if !ok {
 			continue
 		}
@@ -212,7 +219,7 @@ func (c *crawler) rewriteCSS(cssPath, body, cssURL string, fromDisk bool) (int, 
 			continue
 		}
 		with := "url(" + quoteCSSURL(rel) + ")"
-		if hasPrefixFold(body[ref.Offset:], "@import") {
+		if isImport {
 			with = "@import " + with + ";"
 			// Keep whatever followed the URL (media queries) intact.
 			if end := ref.Offset + ref.Length; end <= len(body) && !strings.HasSuffix(strings.TrimSpace(body[ref.Offset:end]), ";") {
