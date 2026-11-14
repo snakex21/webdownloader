@@ -266,21 +266,21 @@ func TestIsSubdomain(t *testing.T) {
 
 func TestShouldFollow(t *testing.T) {
 	opts := Options{}
-	if !shouldFollow("https://example.com/a", "example.com", opts) {
+	if !shouldFollowPage("https://example.com/a", "example.com", opts) {
 		t.Error("same-domain link should be followed")
 	}
-	if shouldFollow("https://cdn.example.com/a", "example.com", opts) {
+	if shouldFollowPage("https://cdn.example.com/a", "example.com", opts) {
 		t.Error("subdomain link should NOT be followed by default")
 	}
-	if shouldFollow("https://other.com/a", "example.com", opts) {
+	if shouldFollowPage("https://other.com/a", "example.com", opts) {
 		t.Error("off-domain link should NOT be followed by default")
 	}
 	opts.IncludeSubdomains = true
-	if !shouldFollow("https://cdn.example.com/a", "example.com", opts) {
+	if !shouldFollowPage("https://cdn.example.com/a", "example.com", opts) {
 		t.Error("subdomain should be followed when IncludeSubdomains=true")
 	}
 	opts.IncludeExternalAssets = true
-	if shouldFollow("https://other.com/a", "example.com", opts) {
+	if shouldFollowPage("https://other.com/a", "example.com", opts) {
 		t.Error("off-domain HTML should NOT be followed even when IncludeExternalAssets=true")
 	}
 	if !shouldDownloadAsset("https://other.com/a.png", "example.com", opts) {

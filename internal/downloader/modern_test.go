@@ -208,11 +208,11 @@ func TestDownload_UpdateRefetchesExistingFiles(t *testing.T) {
 	}))
 	defer srv.Close()
 	out := t.TempDir()
-	if _, err := Download(Options{URL: srv.URL + "/", OutputDir: out, SkipExisting: true}, Events{}); err != nil {
+	if _, err := Download(Options{URL: srv.URL + "/", OutputDir: out}, Events{}); err != nil {
 		t.Fatal(err)
 	}
 	version = "two"
-	if _, err := Download(Options{URL: srv.URL + "/", OutputDir: out, SkipExisting: true}, Events{}); err != nil {
+	if _, err := Download(Options{URL: srv.URL + "/", OutputDir: out}, Events{}); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(out, "app.js")); string(b) != "one" {

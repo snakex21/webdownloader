@@ -146,7 +146,6 @@ func (a *api) runDownload(
 		MaxFileBytes:          megabytes(req.MaxFileMB),
 		Retries:               2,
 		Cookie:                req.Cookie,
-		SkipExisting:          !refresh,
 		Refresh:               refresh,
 	}, downloader.Events{
 		OnPage: func(event downloader.PageEvent) {

@@ -4,7 +4,6 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -96,9 +95,6 @@ func RewriteAssets(html string) (*goquery.Document, []AssetRef, error) {
 	doc.Find("video[poster]").Each(func(_ int, s *goquery.Selection) { collect(s, "video", "poster") })
 	doc.Find("audio[src]").Each(func(_ int, s *goquery.Selection) { collect(s, "audio", "src") })
 	doc.Find("iframe[src]").Each(func(_ int, s *goquery.Selection) { collect(s, "iframe", "src") })
-	doc.Find("iframe[src]").Each(func(_ int, s *goquery.Selection) {
-		// Scope filtering happens later in downloadPage, not here.
-	})
 	doc.Find("embed[src]").Each(func(_ int, s *goquery.Selection) { collect(s, "embed", "src") })
 	doc.Find("object[data]").Each(func(_ int, s *goquery.Selection) { collect(s, "object", "data") })
 	doc.Find("track[src]").Each(func(_ int, s *goquery.Selection) { collect(s, "track", "src") })
@@ -124,16 +120,6 @@ func RewriteAssetURL(doc *goquery.Document, tag, attr, original, newValue string
 		}
 		if v == original {
 			s.SetAttr(attr, newValue)
-		}
-	})
-}
-
-// RewriteLink rewrites every navigation href in doc whose href equals oldHref
-// to newHref. Used to point inter-page links at locally-saved HTML files.
-func RewriteLink(doc *goquery.Document, oldHref, newHref string) {
-	doc.Find("a[href], area[href]").Each(func(_ int, s *goquery.Selection) {
-		if v, ok := s.Attr("href"); ok && v == oldHref {
-			s.SetAttr("href", newHref)
 		}
 	})
 }
@@ -229,20 +215,6 @@ func shouldSkipNavigationHref(href string) bool {
 		strings.HasPrefix(lower, "tel:") ||
 		strings.HasPrefix(lower, "javascript:") ||
 		strings.HasPrefix(lower, "data:")
-}
-
-// CollectLinks scans the document for <a href> and <area href> links and
-// returns their href values, resolved against baseURL. The caller decides
-// which ones to follow (same host, no mailto/tel/javascript, html-like
-// extension or query string).
-func CollectLinks(doc *goquery.Document, baseURL string) []string {
-	var out []string
-	doc.Find("a[href], area[href]").Each(func(_ int, s *goquery.Selection) {
-		if h, ok := s.Attr("href"); ok {
-			out = append(out, h)
-		}
-	})
-	return out
 }
 
 // RewriteMetaRefresh rewrites the URL in <meta http-equiv="refresh"> so
@@ -358,48 +330,4 @@ func isDownloadableAssetRef(s string) bool {
 		return false
 	}
 	return true
-}
-
-// parseSrcset is a public helper used by the JS-side progress UI when it
-// wants to show the highest-resolution variant. Kept around for
-// completeness — currently unused by the downloader core.
-func parseSrcset(value string) []srcsetCandidate {
-	entries := strings.Split(value, ",")
-	var out []srcsetCandidate
-	for _, e := range entries {
-		parts := strings.Fields(strings.TrimSpace(e))
-		if len(parts) == 0 {
-			continue
-		}
-		c := srcsetCandidate{URL: parts[0]}
-		for _, p := range parts[1:] {
-			if strings.HasSuffix(p, "w") {
-				if n, err := strconv.Atoi(strings.TrimSuffix(p, "w")); err == nil {
-					c.Width = n
-				}
-			} else if strings.HasSuffix(p, "x") {
-				if f, err := strconv.ParseFloat(strings.TrimSuffix(p, "x"), 64); err == nil {
-					c.Density = f
-				}
-			}
-		}
-		out = append(out, c)
-	}
-	return out
-}
-
-type srcsetCandidate struct {
-	URL     string
-	Width   int
-	Density float64
-}
-
-// extFromURL is a small helper used by some refactorings. Kept to avoid
-// importing the same logic twice from two places.
-func extFromURL(u string) string {
-	parsed, err := url.Parse(u)
-	if err != nil {
-		return ""
-	}
-	return strings.ToLower(filepath.Ext(parsed.Path))
 }
