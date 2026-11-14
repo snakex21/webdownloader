@@ -574,3 +574,76 @@ func TestResumeRewritesExtensionlessCSS(t *testing.T) {
 
 const rawPHPCSS = `@import url("/more.php");
 body { background: url(/img/bg.png); }`
+
+// A start page that redirects to another host makes that host the site:
+// its pages and files are followed and saved at the top of the folder (not
+// under _hosts), and links back to the old host are not followed.
+func TestStartRedirectToOtherHostAdoptsIt(t *testing.T) {
+	var legacyHits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := strings.Split(r.Host, ":")[0]
+		port := strings.Split(r.Host, ":")[1]
+		if host == "old.test" {
+			if r.URL.Path == "/legacy" {
+				legacyHits.Add(1)
+			}
+			http.Redirect(w, r, "http://new.test:"+port+"/home/", http.StatusMovedPermanently)
+			return
+		}
+		switch r.URL.Path {
+		case "/home/":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, strings.ReplaceAll(`<p>new home</p><img src="/img/logo.png">
+				<a href="about.html">about</a> <a href="/home/team/">team</a>
+				<a href="http://new.test:PORT/home/">home again</a>
+				<a href="http://old.test:PORT/legacy">legacy</a>`, "PORT", port))
+		case "/home/about.html":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<p>about</p>`)
+		case "/home/team/":
+			w.Header().Set("Content-Type", "text/html")
+			fmt.Fprint(w, `<p>team</p>`)
+		case "/img/logo.png":
+			fmt.Fprint(w, "PNG")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	port := routeAllHostsTo(t, srv)
+
+	out := t.TempDir()
+	sum, err := Download(Options{URL: "http://old.test:" + port + "/start", OutputDir: out, MaxDepth: 2, PageDelay: -1}, Events{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sum.Pages != 3 || sum.Errors != 0 {
+		t.Errorf("pages = %d, errors = %+v; want 3 pages (home, about, team)", sum.Pages, sum.FailedFiles)
+	}
+	if want := filepath.Join(out, "home", "index.html"); sum.StartFile != want {
+		t.Errorf("StartFile = %q, want %q", sum.StartFile, want)
+	}
+	for rel, text := range map[string]string{
+		"home/index.html":      "new home",
+		"home/about.html":      "about",
+		"home/team/index.html": "team",
+		"img/logo.png":         "PNG",
+	} {
+		data, err := os.ReadFile(filepath.Join(out, filepath.FromSlash(rel)))
+		if err != nil || !strings.Contains(string(data), text) {
+			t.Errorf("%s = %q, %v; want it to contain %q", rel, data, err, text)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(out, "_hosts")); !os.IsNotExist(err) {
+		t.Errorf("files of the adopted host went to _hosts: %v", err)
+	}
+	home, _ := os.ReadFile(filepath.Join(out, "home", "index.html"))
+	for _, ref := range []string{`src="../img/logo.png"`, `href="about.html"`, `href="team/index.html"`, `href="index.html"`} {
+		if !strings.Contains(string(home), ref) {
+			t.Errorf("home page lacks %s:\n%s", ref, home)
+		}
+	}
+	if legacyHits.Load() != 0 {
+		t.Error("link back to the old host was followed")
+	}
+}

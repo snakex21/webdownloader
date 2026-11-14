@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path"
@@ -805,7 +806,11 @@ func (c *crawler) savePage(pageURL string, resp *FetchResult) (links, attachment
 	if isHTTPURL(resp.FinalURL) {
 		baseURL = resp.FinalURL
 	}
-	pagePath, err := c.layout.pagePath(pageURL)
+	savedURL := pageURL
+	if c.adoptRedirectHost(pageURL, baseURL) {
+		savedURL = baseURL
+	}
+	pagePath, err := c.layout.pagePath(savedURL)
 	if err != nil {
 		return nil, nil, fmt.Errorf("page path: %w", err)
 	}
@@ -832,6 +837,35 @@ func (c *crawler) savePage(pageURL string, resp *FetchResult) (links, attachment
 		return links, attachments, fmt.Errorf("write html: %w", &localWriteError{err: err})
 	}
 	return links, attachments, nil
+}
+
+// adoptRedirectHost makes the host the start page redirected to the
+// mirrored site (example.com -> www.example.org/): its pages and files are
+// then in scope and saved at the top of the folder instead of under
+// _hosts, and the start page is saved under its final URL. Only the start
+// page can move the site, before anything else was saved.
+func (c *crawler) adoptRedirectHost(pageURL, finalURL string) bool {
+	if pageURL != c.opts.URL || c.pagesDone.Load() != 0 {
+		return false
+	}
+	u, err := url.Parse(finalURL)
+	if err != nil || u.Hostname() == "" || siteHost(u.Hostname()) == siteHost(c.domain) {
+		return false
+	}
+	startFile, err := (layout{dir: c.layout.dir, site: u.Hostname()}).pagePath(finalURL)
+	if err != nil {
+		return false
+	}
+	log.Printf("start page moved to %s: mirroring %s", u.Host, u.Hostname())
+	c.domain = u.Hostname()
+	c.layout.site = u.Hostname()
+	c.startFile = startFile
+	// Links back to the start page under its new address are the page
+	// just saved.
+	c.queue.queued[c.pageKey(finalURL)] = struct{}{}
+	c.queue.visited[finalURL] = struct{}{}
+	c.queue.visitedFiles[strings.ToLower(startFile)] = struct{}{}
+	return true
 }
 
 // fetchPageAssets downloads the assets a page references and points the
