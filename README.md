@@ -93,14 +93,16 @@ runs the download engine from the command line without the UI (exit code
   (`logo.png?v=3` → `logo.png`; references keep `?v=3`, so an ES module keeps
   one identity) and kept for dynamic or extension-less URLs
   (`img.php?id=1` → `img__id_1.php`), capped at 64 characters plus a hash.
-  Files of other hosts (subdomains, CDNs) go to `_hosts/<host>/…`, so the
-  same path on two hosts never shares a file; the start site (with or
-  without `www.`) keeps the plain layout. File and folder names longer than
+  Files of other hosts (subdomains, CDNs) go to `_hosts/<host>/…`
+  (`_hosts/<host>_<port>/…` on a non-default port), so the same path on two
+  hosts never shares a file; the start site (with or without `www.`) keeps
+  the plain layout. File and folder names longer than
   120 bytes are shortened to a prefix plus a hash. Links in the copy are
   percent-encoded (`a#b.html` → `a%23b.html`).
 - **Redirects.** A page is saved under the address it was linked as, but
   its relative links are resolved against the address the server
-  redirected to (`/docs` → `/docs/`).
+  redirected to (`/docs` → `/docs/`). When the start page redirects to
+  another host, that host becomes the downloaded site.
 - **Fast mode and scripts.** Import maps are parsed (targets downloaded,
   values rewritten); scripts are scanned for `import … from`, `export … from`,
   `import()` and `new URL('…', import.meta.url)` (resolved against the script)
@@ -159,6 +161,7 @@ runs the download engine from the command line without the UI (exit code
 │       ├── main.go          # application startup
 │       ├── api.go           # frontend RPC state
 │       ├── bridge.go        # webview bindings and events
+│       ├── events.go        # typed JSON payloads of the UI events
 │       ├── download.go      # download commands and lifecycle
 │       ├── preferences.go   # persistent user preferences
 │       ├── system.go        # operating-system commands
@@ -177,7 +180,8 @@ runs the download engine from the command line without the UI (exit code
 │   │   ├── path.go          # URL → on-disk path mapping and validation
 │   │   ├── storage.go       # atomic, root-confined file writes
 │   │   ├── errors.go        # failure classification for the UI
-│   │   └── downloader.go    # BFS orchestrator + event callbacks
+│   │   ├── run.go           # Download: setup, crawl loop, finish
+│   │   └── downloader.go    # page and asset processing, scope rules
 │   ├── wv2host/             # hidden private WebView2 with a DevTools port
 │   ├── preview/             # offline preview server (127.0.0.1)
 │   ├── locale/
