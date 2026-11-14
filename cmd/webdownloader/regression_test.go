@@ -50,7 +50,7 @@ func TestRunDownloadAlwaysFiresComplete(t *testing.T) {
 	if len(got) != 1 || got[0].name != "complete" || got[0].id != "run1" {
 		t.Fatalf("events = %+v, want one complete", got)
 	}
-	s, ok := got[0].payload.(downloader.Summary)
+	s, ok := got[0].payload.(completePayload)
 	if !ok || !s.Failed || s.FailKind != "write" {
 		t.Fatalf("complete payload = %#v", got[0].payload)
 	}

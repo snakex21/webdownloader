@@ -627,7 +627,7 @@ async function startDownload(resume, queuedRequest) {
         result = { error: String(e && e.message || e) };
     }
     if (result.error) {
-        finishRun({ Failed: true, FailKind: classifyStartError(result.error), FailDetail: result.error }, true);
+        finishRun({ failed: true, failKind: classifyStartError(result.error), failDetail: result.error }, true);
         return;
     }
     run.id = result.id;
@@ -698,28 +698,28 @@ listeners.progress.push(evt => {
     const d = evt.payload || {};
     if (!run.paused && $('statusIcon').classList.contains('starting')) setStatus('downloading', tt('statusTitle.downloading'));
     const b = run.baseline;
-    run.pages = Math.max(run.pages, b.pages + (d.Pages || 0));
-    run.assets = Math.max(run.assets, b.assets + (d.Assets || 0));
-    run.attachments = Math.max(run.attachments, b.attachments + (d.Attachments || 0));
-    run.bytes = Math.max(run.bytes, b.bytes + (d.Bytes || 0));
-    run.transferred = Math.max(run.transferred || 0, d.Transferred || 0);
+    run.pages = Math.max(run.pages, b.pages + (d.pages || 0));
+    run.assets = Math.max(run.assets, b.assets + (d.assets || 0));
+    run.attachments = Math.max(run.attachments, b.attachments + (d.attachments || 0));
+    run.bytes = Math.max(run.bytes, b.bytes + (d.bytes || 0));
+    run.transferred = Math.max(run.transferred || 0, d.transferred || 0);
     updateCounters();
-    $('metricQueue').textContent = formatNumber(d.Queued || 0);
-    if (d.Current) setCurrentFile(d.Current);
+    $('metricQueue').textContent = formatNumber(d.queued || 0);
+    if (d.current) setCurrentFile(d.current);
 
     // Progress: pages done vs. done + queued (or the page/size limit).
-    const done = d.Pages || 0;
-    const total = done + (d.Queued || 0) + (d.Status === 'downloading' ? 1 : 0);
+    const done = d.pages || 0;
+    const total = done + (d.queued || 0) + (d.status === 'downloading' ? 1 : 0);
     let pct = null;
     const maxPages = run.request.maxPages || 0;
     const maxBytes = (run.request.maxTotalMB || 0) * 1048576;
-    if (run.request.depth <= 1) pct = d.Status === 'done' ? 100 : null;
-    else if (total > 0 && (done > 0 || d.Queued > 0)) pct = Math.floor(done / total * 100);
+    if (run.request.depth <= 1) pct = d.status === 'done' ? 100 : null;
+    else if (total > 0 && (done > 0 || d.queued > 0)) pct = Math.floor(done / total * 100);
     if (maxPages > 0) pct = Math.max(pct || 0, Math.floor(done / maxPages * 100));
-    if (maxBytes > 0) pct = Math.max(pct || 0, Math.floor((d.Bytes || 0) / maxBytes * 100));
-    run.queued = d.Queued || 0;
+    if (maxBytes > 0) pct = Math.max(pct || 0, Math.floor((d.bytes || 0) / maxBytes * 100));
+    run.queued = d.queued || 0;
     if (total > 0 && done > 0) run.frac = Math.min(0.99, done / total);
-    if (done > 0 && !d.Queued && d.Status !== 'downloading' && !maxBytes) {
+    if (done > 0 && !d.queued && d.status !== 'downloading' && !maxBytes) {
         // All pages are saved; files (attachments) are still coming.
         run.pct = 99;
         run.frac = undefined;
@@ -730,12 +730,12 @@ listeners.progress.push(evt => {
         setProgress(pct, tt('progress.label', { pct, done: formatNumber(done), total: formatNumber(Math.max(total, done)) }));
     }
 
-    if (d.URL) {
-        if (d.Status === 'downloading') {
-            setCurrentFile(d.URL);
-            addLog(tt('log.downloading') + ' ' + d.URL, '');
-        } else if (d.Status === 'done') {
-            addLog(tt('log.downloaded') + ' ' + d.URL, 'success');
+    if (d.url) {
+        if (d.status === 'downloading') {
+            setCurrentFile(d.url);
+            addLog(tt('log.downloading') + ' ' + d.url, '');
+        } else if (d.status === 'done') {
+            addLog(tt('log.downloaded') + ' ' + d.url, 'success');
         }
     }
 
@@ -787,27 +787,27 @@ async function finishRun(summary, immediate) {
     const data = {
         url: run.url,
         output: run.output || '',
-        startFile: summary.StartFile || '',
-        failed: !!summary.Failed,
-        cancelled: !!summary.Cancelled,
-        failKind: summary.FailKind || '',
-        failStatus: summary.FailStatus || 0,
-        failDetail: summary.FailDetail || '',
-        errors: summary.Errors || 0,
-        skipped: summary.SkippedExternal || 0,
-        skippedHosts: summary.SkippedExternalHosts || [],
-        trackers: summary.SkippedTrackers || 0,
-        trackerHosts: summary.SkippedTrackerHosts || [],
-        failedFiles: summary.FailedFiles || [],
-        needsServer: !!summary.NeedsServer,
-        engine: summary.Engine || '',
+        startFile: summary.startFile || '',
+        failed: !!summary.failed,
+        cancelled: !!summary.cancelled,
+        failKind: summary.failKind || '',
+        failStatus: summary.failStatus || 0,
+        failDetail: summary.failDetail || '',
+        errors: summary.errors || 0,
+        skipped: summary.skippedExternal || 0,
+        skippedHosts: summary.skippedExternalHosts || [],
+        trackers: summary.skippedTrackers || 0,
+        trackerHosts: summary.skippedTrackerHosts || [],
+        failedFiles: summary.failedFiles || [],
+        needsServer: !!summary.needsServer,
+        engine: summary.engine || '',
         updating: !!run.updating,
-        pages: Math.max(run.pages, run.baseline.pages + (summary.Pages || 0)),
-        assets: Math.max(run.assets, run.baseline.assets + (summary.Assets || 0)),
-        attachments: Math.max(run.attachments, run.baseline.attachments + (summary.Attachments || 0)),
-        bytes: Math.max(run.bytes, run.baseline.bytes + (summary.Bytes || 0)),
+        pages: Math.max(run.pages, run.baseline.pages + (summary.pages || 0)),
+        assets: Math.max(run.assets, run.baseline.assets + (summary.assets || 0)),
+        attachments: Math.max(run.attachments, run.baseline.attachments + (summary.attachments || 0)),
+        bytes: Math.max(run.bytes, run.baseline.bytes + (summary.bytes || 0)),
         elapsedMs: elapsed,
-        reportPath: summary.ReportPath || '',
+        reportPath: summary.reportPath || '',
         request: run.request,
     };
     run.pages = data.pages; run.assets = data.assets; run.attachments = data.attachments; run.bytes = data.bytes;
@@ -916,11 +916,11 @@ function failedNote(d) {
         const row = document.createElement('li');
         const reason = document.createElement('span');
         reason.className = 'reason';
-        reason.textContent = failReason(f.Kind, f.Status);
+        reason.textContent = failReason(f.kind, f.status);
         const url = document.createElement('span');
         url.className = 'url';
-        url.textContent = shortURL(f.URL);
-        url.title = f.URL;
+        url.textContent = shortURL(f.url);
+        url.title = f.url;
         row.append(reason, url);
         list.appendChild(row);
     }
@@ -1059,7 +1059,7 @@ async function requestCancel() {
     let accepted = '';
     try { accepted = await window.api_cancel(id); } catch (e) { console.error(e); }
     setTimeout(() => {
-        if (run && run.id === id && !run.finished) finishRun({ Cancelled: true }, false);
+        if (run && run.id === id && !run.finished) finishRun({ cancelled: true }, false);
     }, accepted ? 4000 : 0);
 }
 

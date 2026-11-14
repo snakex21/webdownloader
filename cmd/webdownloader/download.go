@@ -149,21 +149,18 @@ func (a *api) runDownload(
 		Refresh:               refresh,
 	}, downloader.Events{
 		OnPage: func(event downloader.PageEvent) {
-			a.fire("progress", id, event)
+			a.fire("progress", id, newProgressPayload(event))
 		},
 		OnAsset: func(assetURL, kind string) {
 			// Counts travel with progress events; these only feed the log,
 			// so a burst is thinned out instead of flooding the UI thread.
 			if events.allowAsset() {
-				a.fire("asset", id, map[string]string{"url": assetURL, "kind": kind})
+				a.fire("asset", id, assetPayload{URL: assetURL, Kind: kind})
 			}
 		},
 		OnError: func(pageURL string, err error) {
 			if events.allowError() {
-				a.fire("error", id, map[string]string{
-					"url":   pageURL,
-					"error": err.Error(),
-				})
+				a.fire("error", id, errorPayload{URL: pageURL, Error: err.Error()})
 			}
 		},
 		OnComplete: func(summary downloader.Summary) {
@@ -171,7 +168,7 @@ func (a *api) runDownload(
 			a.markCompleted(id)
 			log.Printf("run %s: finished pages=%d assets=%d cancelled=%t failed=%t in %s",
 				id, summary.Pages, summary.Assets, summary.Cancelled, summary.Failed, summary.Elapsed.Round(time.Millisecond))
-			a.fire("complete", id, summary)
+			a.fire("complete", id, newCompletePayload(summary))
 		},
 	})
 	if err != nil {
@@ -184,7 +181,7 @@ func (a *api) runDownload(
 			summary.FailDetail = err.Error()
 		}
 		a.markCompleted(id)
-		a.fire("complete", id, summary)
+		a.fire("complete", id, newCompletePayload(summary))
 	}
 }
 
@@ -330,7 +327,7 @@ func (a *api) cancelWatchdog(id string, run *runInfo, grace time.Duration) {
 	buf := make([]byte, 1<<20)
 	n := runtime.Stack(buf, true)
 	log.Printf("run %s: still running %s after cancel; goroutines:\n%s", id, grace, buf[:n])
-	a.fire("complete", id, map[string]any{"Cancelled": true, "Forced": true})
+	a.fire("complete", id, completePayload{Cancelled: true, Forced: true})
 }
 
 func (a *api) pause(runID string) string {
