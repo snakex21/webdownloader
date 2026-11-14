@@ -4,6 +4,7 @@
 package wv2host
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -21,7 +22,7 @@ type Host struct {
 func Available() bool { return false }
 
 // Start is unsupported outside Windows.
-func Start(time.Duration) (*Host, error) { return nil, ErrRuntimeNotFound }
+func Start(context.Context, time.Duration) (*Host, error) { return nil, ErrRuntimeNotFound }
 
 // Close is a no-op outside Windows.
 func (h *Host) Close() {}

@@ -3,6 +3,7 @@
 package wv2host
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -17,7 +18,7 @@ func TestStartExposesPrivateDevTools(t *testing.T) {
 	if testing.Short() || !Available() {
 		t.Skip("WebView2 runtime not available (or -short)")
 	}
-	h, err := Start(30 * time.Second)
+	h, err := Start(context.Background(), 30*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

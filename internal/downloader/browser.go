@@ -192,13 +192,13 @@ func startEngine(httpFetcher *Fetcher, parentCtx context.Context, engine Engine,
 
 	switch engine {
 	case EngineWebView2:
-		host, err := wv2host.Start(20 * time.Second)
+		host, err := wv2host.Start(parentCtx, 20*time.Second)
 		if err != nil {
 			return nil, err
 		}
 		bf.host = host
 		bf.engine = "webview2 " + host.Version
-		targetID, err := firstPageTarget(host.DevToolsURL)
+		targetID, err := firstPageTarget(parentCtx, host.DevToolsURL)
 		if err != nil {
 			host.Close()
 			return nil, err
@@ -255,6 +255,8 @@ func startEngine(httpFetcher *Fetcher, parentCtx context.Context, engine Engine,
 	case err = <-runErr:
 	case <-time.After(30 * time.Second):
 		err = errors.New("browser did not respond within 30s")
+	case <-parentCtx.Done():
+		err = parentCtx.Err()
 	}
 	if err != nil {
 		_ = bf.Close()
@@ -263,12 +265,19 @@ func startEngine(httpFetcher *Fetcher, parentCtx context.Context, engine Engine,
 	return bf, nil
 }
 
-// firstPageTarget asks the DevTools HTTP endpoint for the existing page.
-func firstPageTarget(devToolsURL string) (string, error) {
+// firstPageTarget asks the DevTools HTTP endpoint for the existing page. It
+// gives up after about 10 s, or at once when ctx is cancelled.
+func firstPageTarget(ctx context.Context, devToolsURL string) (string, error) {
 	base := "http://" + strings.TrimPrefix(strings.SplitN(devToolsURL, "/devtools/", 2)[0], "ws://")
-	client := &http.Client{Timeout: 5 * time.Second}
-	for range 50 {
-		resp, err := client.Get(base + "/json/list")
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	client := &http.Client{Timeout: 2 * time.Second}
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/json/list", nil)
+		if err != nil {
+			return "", err
+		}
+		resp, err := client.Do(req)
 		if err == nil {
 			var targets []struct {
 				ID   string `json:"id"`
@@ -284,9 +293,15 @@ func firstPageTarget(devToolsURL string) (string, error) {
 				}
 			}
 		}
-		time.Sleep(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return "", errors.New("WebView2 page target not found")
+			}
+			return "", ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
-	return "", errors.New("WebView2 page target not found")
 }
 
 func (b *browserFetcher) wrapErr(what string, err error) error {

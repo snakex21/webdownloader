@@ -14,6 +14,7 @@
 package wv2host
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -321,8 +322,15 @@ func Available() bool {
 }
 
 // Start launches the hidden WebView2 browser. Close must be called to stop
-// it and remove its temporary profile.
-func Start(timeout time.Duration) (*Host, error) {
+// it and remove its temporary profile. Cancelling ctx aborts the start
+// (the half-started instance is closed).
+func Start(ctx context.Context, timeout time.Duration) (*Host, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	dllPath, version, err := runtimeDLL()
 	if err != nil {
 		return nil, err
@@ -430,9 +438,11 @@ func Start(timeout time.Duration) (*Host, error) {
 	case err = <-st.result:
 	case <-time.After(timeout):
 		err = errStartupTimeout
+	case <-ctx.Done():
+		err = ctx.Err()
 	}
 	if err == nil {
-		h.DevToolsURL, err = waitDevToolsURL(userDataDir, timeout)
+		h.DevToolsURL, err = waitDevToolsURL(ctx, userDataDir, timeout)
 	}
 	if err != nil {
 		h.Close()
@@ -442,7 +452,7 @@ func Start(timeout time.Duration) (*Host, error) {
 }
 
 // waitDevToolsURL reads the port Chromium picked from DevToolsActivePort.
-func waitDevToolsURL(userDataDir string, timeout time.Duration) (string, error) {
+func waitDevToolsURL(ctx context.Context, userDataDir string, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)
 	candidates := []string{
 		filepath.Join(userDataDir, "EBWebView", "DevToolsActivePort"),
@@ -464,7 +474,11 @@ func waitDevToolsURL(userDataDir string, timeout time.Duration) (string, error) 
 			}
 			return "ws://127.0.0.1:" + strconv.Itoa(port) + strings.TrimSpace(lines[1]), nil
 		}
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
 	}
 	return "", errors.New("WebView2 DevTools endpoint did not appear")
 }
