@@ -143,6 +143,18 @@ func RewriteLink(doc *goquery.Document, oldHref, newHref string) {
 // <a href> and <area href>, skips pseudo links, keeps pure hash anchors intact,
 // and prevents <base href> from forcing local relative links back online.
 func RewriteLocalNavigation(doc *goquery.Document, pageURL, baseDir, domain string, opts Options) (links, attachments []string) {
+	l := layout{dir: baseDir, site: domain}
+	fromDir := baseDir
+	if p, err := l.pagePath(pageURL); err == nil {
+		fromDir = filepath.Dir(p)
+	}
+	return rewriteLocalNavigation(doc, pageURL, fromDir, l, domain, opts)
+}
+
+// rewriteLocalNavigation resolves links against baseURL (the page's final
+// URL after redirects) and writes hrefs relative to fromDir, the folder the
+// page is saved in. Returned URLs carry no #fragment.
+func rewriteLocalNavigation(doc *goquery.Document, baseURL, fromDir string, l layout, domain string, opts Options) (links, attachments []string) {
 	// A remote <base href="https://site/"> would make every relative link in the
 	// saved HTML resolve against the internet, not the local folder.
 	doc.Find("base[href]").Each(func(_ int, s *goquery.Selection) {
@@ -158,7 +170,7 @@ func RewriteLocalNavigation(doc *goquery.Document, pageURL, baseDir, domain stri
 			return
 		}
 
-		full, absErr := absoluteURL(pageURL, href)
+		full, absErr := absoluteURL(baseURL, href)
 		if absErr != nil {
 			return
 		}
@@ -166,6 +178,9 @@ func RewriteLocalNavigation(doc *goquery.Document, pageURL, baseDir, domain stri
 		if parseErr != nil {
 			return
 		}
+		target := *linkParsed
+		target.Fragment, target.RawFragment = "", ""
+		targetURL := target.String()
 		if isTechnicalCrawlerURL(linkParsed) {
 			return
 		}
@@ -179,24 +194,24 @@ func RewriteLocalNavigation(doc *goquery.Document, pageURL, baseDir, domain stri
 
 		if opts.DownloadAll {
 			if _, isAttach := fileExtensions[ext]; isAttach {
-				if rel, relErr := RelativeAssetPath(baseDir, pageURL, full); relErr == nil {
+				if rel, relErr := l.assetHref(fromDir, targetURL); relErr == nil {
 					s.SetAttr("href", rel)
 				}
-				if _, dup := seenAttach[full]; !dup {
-					seenAttach[full] = struct{}{}
-					attachments = append(attachments, full)
+				if _, dup := seenAttach[targetURL]; !dup {
+					seenAttach[targetURL] = struct{}{}
+					attachments = append(attachments, targetURL)
 				}
 				return
 			}
 		}
 
 		if isHTMLish || hasSearch {
-			if rel, relErr := RelativePagePath(baseDir, pageURL, full); relErr == nil {
+			if rel, relErr := l.pageHref(fromDir, full); relErr == nil {
 				s.SetAttr("href", rel)
 			}
-			if _, dup := seenLinks[full]; !dup {
-				seenLinks[full] = struct{}{}
-				links = append(links, full)
+			if _, dup := seenLinks[targetURL]; !dup {
+				seenLinks[targetURL] = struct{}{}
+				links = append(links, targetURL)
 			}
 		}
 	})
@@ -233,6 +248,15 @@ func CollectLinks(doc *goquery.Document, baseURL string) []string {
 // RewriteMetaRefresh rewrites the URL in <meta http-equiv="refresh"> so
 // the saved page navigates locally if the user clicks through.
 func RewriteMetaRefresh(doc *goquery.Document, pageURL, baseDir string) {
+	l := layout{dir: baseDir}
+	fromDir := baseDir
+	if p, err := l.pagePath(pageURL); err == nil {
+		fromDir = filepath.Dir(p)
+	}
+	rewriteMetaRefresh(doc, pageURL, fromDir, l)
+}
+
+func rewriteMetaRefresh(doc *goquery.Document, baseURL, fromDir string, l layout) {
 	doc.Find("meta[http-equiv]").Each(func(_ int, s *goquery.Selection) {
 		he, _ := s.Attr("http-equiv")
 		if !strings.EqualFold(he, "refresh") {
@@ -242,7 +266,7 @@ func RewriteMetaRefresh(doc *goquery.Document, pageURL, baseDir string) {
 		if !ok {
 			return
 		}
-		newContent := rewriteMetaRefreshContent(content, pageURL, baseDir)
+		newContent := rewriteMetaRefreshContent(content, baseURL, fromDir, l)
 		if newContent != content {
 			s.SetAttr("content", newContent)
 		}
@@ -257,7 +281,7 @@ var (
 // against pageURL, and returns the rewritten content string. If the URL
 // can't be rewritten (e.g. off-domain and the user disabled external
 // assets, or just unparseable) the original is returned unchanged.
-func rewriteMetaRefreshContent(content, pageURL, baseDir string) string {
+func rewriteMetaRefreshContent(content, baseURL, fromDir string, l layout) string {
 	m := metaRefreshRE.FindStringSubmatch(content)
 	if m == nil {
 		return content
@@ -265,11 +289,11 @@ func rewriteMetaRefreshContent(content, pageURL, baseDir string) string {
 	delay := m[1]
 	target := strings.Trim(m[2], "'\"")
 
-	abs, err := absoluteURL(pageURL, target)
+	abs, err := absoluteURL(baseURL, target)
 	if err != nil {
 		return content
 	}
-	rel, err := RelativePagePath(baseDir, pageURL, abs)
+	rel, err := l.pageHref(fromDir, abs)
 	if err != nil {
 		return content
 	}

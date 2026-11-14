@@ -1,6 +1,7 @@
 package downloader
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -30,6 +31,9 @@ type FetchResult struct {
 	ContentType string
 	// Rendered is set by the browser fetcher: what the page loaded.
 	Rendered *renderResult
+	// Streamed is set by FetchPageOrFile when the body was not HTML and
+	// went to disk (or was discarded) instead of into Body.
+	Streamed bool
 }
 
 // ErrFileTooLarge is returned before/while reading a response whose size
@@ -194,6 +198,94 @@ func (f *Fetcher) FetchToFile(rawURL string, maxBytes int64, baseDir, fullPath s
 		resp.result.Size = n
 		return resp.result, 0, nil
 	})
+}
+
+// maxHTMLBytes caps how much of one HTML page is held in memory (it has to
+// be parsed and rewritten), whatever the per-file limit says.
+const maxHTMLBytes = 32 << 20
+
+// sniffLen is how much of a body of unknown type is read to decide whether
+// it is an HTML page.
+const sniffLen = 512
+
+// FetchPageOrFile fetches a crawled link. An HTML response (by Content-Type,
+// or by sniffing the first bytes when the type is missing or generic) is
+// read into Body, at most maxHTMLBytes (and maxBytes). Anything else is
+// streamed to fullPath inside baseDir like FetchToFile (or discarded when
+// fullPath is empty) and the result has Streamed set and no Body.
+func (f *Fetcher) FetchPageOrFile(rawURL string, maxBytes int64, baseDir, fullPath string) (*FetchResult, error) {
+	return f.withRetries(func() (*FetchResult, time.Duration, error) {
+		resp, err := f.open(rawURL, maxBytes)
+		if err != nil {
+			return nil, 0, err
+		}
+		defer resp.body.Close()
+		res := resp.result
+		if !res.OK {
+			_, _ = io.CopyN(io.Discard, resp.body, 64<<10)
+			return res, resp.retryAfter, nil
+		}
+		isHTML := res.IsHTML()
+		var prefix []byte
+		if !isHTML && genericContentType(res.ContentType) {
+			prefix = make([]byte, sniffLen)
+			n, err := io.ReadFull(resp.body, prefix)
+			prefix = prefix[:n]
+			if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+				return nil, 0, err
+			}
+			if looksLikeHTML(prefix) || strings.HasPrefix(http.DetectContentType(prefix), "text/html") {
+				isHTML = true
+				res.ContentType = "text/html"
+			}
+		}
+		body := io.MultiReader(bytes.NewReader(prefix), resp.body)
+		if isHTML {
+			limit := int64(maxHTMLBytes)
+			if maxBytes > 0 && maxBytes < limit {
+				limit = maxBytes
+			}
+			data, err := io.ReadAll(io.LimitReader(body, limit+1))
+			if err != nil {
+				return nil, 0, err
+			}
+			if int64(len(data)) > limit {
+				return nil, 0, fmt.Errorf("%w: html > %d", ErrFileTooLarge, limit)
+			}
+			res.Body, res.Size = data, int64(len(data))
+			return res, resp.retryAfter, nil
+		}
+		res.Streamed = true
+		src := &trackingReader{r: body, max: maxBytes}
+		if fullPath == "" {
+			n, err := io.Copy(io.Discard, src)
+			if err != nil {
+				return nil, 0, err
+			}
+			res.Size = n
+			return res, 0, nil
+		}
+		n, err := writeOutputStream(baseDir, fullPath, src)
+		if err != nil {
+			if src.err == nil {
+				return nil, 0, &localWriteError{err: err}
+			}
+			return nil, 0, src.err
+		}
+		res.Size = n
+		return res, 0, nil
+	})
+}
+
+// genericContentType reports whether a Content-Type says nothing reliable
+// about the body (missing, octet-stream, plain text), so it is sniffed.
+func genericContentType(ct string) bool {
+	ct = strings.ToLower(strings.TrimSpace(strings.SplitN(ct, ";", 2)[0]))
+	switch ct {
+	case "", "application/octet-stream", "binary/octet-stream", "application/unknown", "text/plain":
+		return true
+	}
+	return false
 }
 
 // localWriteError marks failures writing to disk, as opposed to network

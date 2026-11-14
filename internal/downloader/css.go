@@ -173,7 +173,13 @@ func hasPrefixFold(s, prefix string) bool {
 // cache-busting queries), and persists the updated file. Nested stylesheets
 // are handled recursively through fetchAsset. Returns the number of
 // references rewritten.
-func (c *crawler) rewriteCSS(cssPath, body, cssURL string) (int, error) {
+//
+// fromDisk is set for a file saved by an earlier run, which may have been
+// interrupted before (or while) rewriting it: relative references that
+// already lead to a file in the mirror are kept as they are (they were
+// rewritten, or are relative and already downloaded); everything else is
+// fetched and rewritten now. Nested local stylesheets are still visited.
+func (c *crawler) rewriteCSS(cssPath, body, cssURL string, fromDisk bool) (int, error) {
 	refs := ExtractCSSReferences(body, cssURL)
 	if len(refs) == 0 {
 		return 0, nil
@@ -189,6 +195,12 @@ func (c *crawler) rewriteCSS(cssPath, body, cssURL string) (int, error) {
 		}
 		assetURL, aErr := absoluteURL(cssURL, ref.URL)
 		if aErr != nil {
+			continue
+		}
+		if fromDisk && c.isLocalCSSRef(cssPath, ref.URL) {
+			if assetKind(urlPath(ref.URL), "") == "css" {
+				c.fetchAsset(assetURL, cssURL, false) // finish nested stylesheets too
+			}
 			continue
 		}
 		localPath, ok := c.fetchAsset(assetURL, cssURL, false)
@@ -217,6 +229,18 @@ func (c *crawler) rewriteCSS(cssPath, body, cssURL string) (int, error) {
 		return len(rewrites), err
 	}
 	return len(rewrites), nil
+}
+
+// isLocalCSSRef reports whether ref is a relative URL that leads, from the
+// folder of the saved stylesheet, to a file that exists in the mirror.
+func (c *crawler) isLocalCSSRef(cssPath, ref string) bool {
+	u, err := url.Parse(ref)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.Path == "" || strings.HasPrefix(u.Path, "/") {
+		return false
+	}
+	target := filepath.Join(filepath.Dir(cssPath), filepath.FromSlash(u.Path))
+	info, err := statOutputFile(c.opts.OutputDir, target)
+	return err == nil && info.Mode().IsRegular()
 }
 
 // quoteCSSURL returns the CSS string literal form of a relative URL. If
