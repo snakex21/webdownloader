@@ -82,6 +82,7 @@ func run(debug bool) error {
 	window.Init("window.__goReady = true;")
 	window.Navigate(uiServer.URL)
 	window.Run()
+	flushPrefs() // history saved in the last seconds is written in the background
 	saveWindowSize(uintptr(window.Window()))
 	return nil
 }

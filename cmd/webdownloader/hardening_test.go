@@ -127,6 +127,7 @@ func TestPrefsWriteIsAtomicAndCorruptFileIsKept(t *testing.T) {
 	if got := (&api{}).savePrefs(`{"lang":"pl"}`); got != "ok" {
 		t.Fatalf("savePrefs = %q", got)
 	}
+	flushPrefs()
 	corrupt, err := os.ReadFile(appStorage.prefsFile + ".corrupt")
 	if err != nil || !strings.Contains(string(corrupt), "history") {
 		t.Fatalf("corrupt prefs not preserved: %q, %v", corrupt, err)

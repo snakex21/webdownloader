@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,33 +17,23 @@ func (a *api) i18n() map[string]any {
 	return a.ui
 }
 
+// savePrefs merges data into prefs.json. It runs on the UI thread (every
+// few seconds while downloading, to keep history current), so it only
+// parses the JSON and hands the write to a background goroutine; queued
+// updates are applied in order and written once.
 func (a *api) savePrefs(data string) string {
-	prefsMu.Lock()
-	defer prefsMu.Unlock()
-
 	incoming := map[string]any{}
 	if strings.TrimSpace(data) != "" {
 		if err := json.Unmarshal([]byte(data), &incoming); err != nil {
 			return fmt.Sprintf("error: %v", err)
 		}
 	}
-
-	prefs := readPrefsMap()
-	for key, value := range incoming {
-		prefs[key] = value
-	}
-
-	output, err := jsonMarshalPrefs(prefs)
-	if err != nil {
-		return fmt.Sprintf("error: %v", err)
-	}
-	if err := writePrefsBytes(output); err != nil {
-		return fmt.Sprintf("error: %v", err)
-	}
+	prefsWriter.enqueue(incoming)
 	return "ok"
 }
 
 func (a *api) loadPrefs() string {
+	flushPrefs()
 	prefsMu.Lock()
 	defer prefsMu.Unlock()
 
@@ -53,7 +44,80 @@ func (a *api) loadPrefs() string {
 	return string(data)
 }
 
+// prefsWriter applies savePrefs updates off the UI thread.
+var prefsWriter = newPrefsQueue()
+
+type prefsQueue struct {
+	mu      sync.Mutex
+	idle    *sync.Cond
+	pending []map[string]any
+	running bool
+}
+
+func newPrefsQueue() *prefsQueue {
+	q := &prefsQueue{}
+	q.idle = sync.NewCond(&q.mu)
+	return q
+}
+
+func (q *prefsQueue) enqueue(update map[string]any) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.pending = append(q.pending, update)
+	if !q.running {
+		q.running = true
+		go q.drain()
+	}
+}
+
+func (q *prefsQueue) drain() {
+	for {
+		q.mu.Lock()
+		batch := q.pending
+		q.pending = nil
+		if len(batch) == 0 {
+			q.running = false
+			q.idle.Broadcast()
+			q.mu.Unlock()
+			return
+		}
+		q.mu.Unlock()
+		if err := applyPrefs(batch); err != nil {
+			log.Printf("save preferences: %v", err)
+		}
+	}
+}
+
+// wait blocks until every queued update is on disk.
+func (q *prefsQueue) wait() {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	for q.running {
+		q.idle.Wait()
+	}
+}
+
+// flushPrefs waits for queued savePrefs writes, so readers see them.
+func flushPrefs() { prefsWriter.wait() }
+
+func applyPrefs(updates []map[string]any) error {
+	prefsMu.Lock()
+	defer prefsMu.Unlock()
+	prefs := readPrefsMap()
+	for _, update := range updates {
+		for key, value := range update {
+			prefs[key] = value
+		}
+	}
+	output, err := jsonMarshalPrefs(prefs)
+	if err != nil {
+		return err
+	}
+	return writePrefsBytes(output)
+}
+
 func (a *api) deleteHistoryItem(id string) string {
+	flushPrefs()
 	prefsMu.Lock()
 	defer prefsMu.Unlock()
 
@@ -106,6 +170,7 @@ func readPrefsMap() map[string]any {
 }
 
 func readPrefsSnapshot() map[string]any {
+	flushPrefs()
 	prefsMu.Lock()
 	defer prefsMu.Unlock()
 	return readPrefsMap()

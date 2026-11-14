@@ -81,6 +81,24 @@ window._fireAsset = d => fire('asset', d);
 window._fireError = d => fire('error', d);
 window._fireComplete = d => fire('complete', d);
 
+// api_folderInfo walks the folder off the UI thread and answers with a
+// folderInfo event carrying the request id.
+const folderInfoWaiters = new Map();
+let folderInfoSeq = 0;
+window._fireFolderInfo = d => {
+    const done = folderInfoWaiters.get(d && d.id);
+    if (done) done(d.payload || null);
+};
+function folderInfo(path) {
+    return new Promise(resolve => {
+        const id = 'fi' + (++folderInfoSeq);
+        const finish = info => { clearTimeout(timer); folderInfoWaiters.delete(id); resolve(info); };
+        const timer = setTimeout(() => finish(null), 120000);
+        folderInfoWaiters.set(id, finish);
+        Promise.resolve(window.api_folderInfo(id, path)).catch(() => finish(null));
+    });
+}
+
 // ---- DOM -----------------------------------------------------------------
 const $ = id => document.getElementById(id);
 const form = $('downloadForm');
@@ -425,7 +443,7 @@ function historyRow(item) {
 }
 
 async function deleteHistoryItem(item) {
-    const info = item.output ? await window.api_folderInfo(item.output).catch(() => null) : null;
+    const info = item.output ? await folderInfo(item.output) : null;
     const body = [para(item.url || '')];
     if (item.output) body.push(para(item.output, 'modal-path'));
     let blocked = false;
@@ -676,7 +694,7 @@ function updateCounters() {
 }
 
 listeners.progress.push(evt => {
-    if (!run || evt.id !== run.id) return;
+    if (!run || run.finished || evt.id !== run.id) return;
     const d = evt.payload || {};
     if (!run.paused && $('statusIcon').classList.contains('starting')) setStatus('downloading', tt('statusTitle.downloading'));
     const b = run.baseline;
@@ -732,7 +750,7 @@ listeners.progress.push(evt => {
 });
 
 listeners.asset.push(evt => {
-    if (!run || evt.id !== run.id) return;
+    if (!run || run.finished || evt.id !== run.id) return;
     const d = evt.payload || {};
     const attachment = d.kind === 'attachment';
     setCurrentFile(d.url);
@@ -740,7 +758,7 @@ listeners.asset.push(evt => {
 });
 
 listeners.error.push(evt => {
-    if (!run || evt.id !== run.id) return;
+    if (!run || run.finished || evt.id !== run.id) return;
     const d = evt.payload || {};
     addLog(tt('log.error') + ' ' + (d.url || '') + ' – ' + (d.error || ''), 'error');
 });

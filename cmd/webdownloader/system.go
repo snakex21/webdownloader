@@ -123,6 +123,16 @@ type folderInfo struct {
 	Busy   bool  `json:"busy"`
 }
 
+// folderInfoAsync sizes a folder off the UI thread (walking a large copy
+// takes seconds): it returns at once and delivers the result as a
+// "folderInfo" event carrying reqID.
+func (a *api) folderInfoAsync(reqID, path string) string {
+	go func() {
+		a.fire("folderInfo", reqID, a.folderInfo(path))
+	}()
+	return reqID
+}
+
 // folderInfo sizes a download folder recorded in history.
 func (a *api) folderInfo(path string) folderInfo {
 	target, err := validateDeleteTarget(path, readPrefsSnapshot())

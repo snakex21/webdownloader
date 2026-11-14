@@ -129,7 +129,8 @@ func (a *api) runDownload(
 	log.Printf("run %s: start %s (mode=%s depth=%d attachments=%t)", id, req.URL, mode, req.Depth, req.DownloadAll)
 
 	events := newEventLimiter()
-	_, _ = downloader.Download(downloader.Options{
+	completed := false // OnComplete runs on this goroutine
+	_, err := downloader.Download(downloader.Options{
 		Context:               ctx,
 		Pause:                 pause,
 		URL:                   req.URL,
@@ -167,12 +168,25 @@ func (a *api) runDownload(
 			}
 		},
 		OnComplete: func(summary downloader.Summary) {
+			completed = true
 			a.markCompleted(id)
 			log.Printf("run %s: finished pages=%d assets=%d cancelled=%t failed=%t in %s",
 				id, summary.Pages, summary.Assets, summary.Cancelled, summary.Failed, summary.Elapsed.Round(time.Millisecond))
 			a.fire("complete", id, summary)
 		},
 	})
+	if err != nil {
+		log.Printf("run %s: %v", id, err)
+	}
+	if !completed {
+		// The UI waits for "complete"; never leave it without one.
+		summary := downloader.Summary{OutputDir: outputDir, Failed: true, FailKind: "other"}
+		if err != nil {
+			summary.FailDetail = err.Error()
+		}
+		a.markCompleted(id)
+		a.fire("complete", id, summary)
+	}
 }
 
 // eventLimiter thins out per-file events: WebView2 delivers every event as
