@@ -55,7 +55,7 @@ build.bat
 `webdownloader.exe` in the project directory. It contains the application
 icon, HTML, and translations, so it can be copied and run as a standalone
 file. Pass a version to stamp it into the binary (shown in the log):
-`build.bat 2.1.0`.
+`build.bat 2.1.1`.
 
 The release build uses `-trimpath -ldflags="-H windowsgui -s -w"`:
 
@@ -93,6 +93,14 @@ runs the download engine from the command line without the UI (exit code
   (`logo.png?v=3` → `logo.png`; references keep `?v=3`, so an ES module keeps
   one identity) and kept for dynamic or extension-less URLs
   (`img.php?id=1` → `img__id_1.php`), capped at 64 characters plus a hash.
+  Files of other hosts (subdomains, CDNs) go to `_hosts/<host>/…`, so the
+  same path on two hosts never shares a file; the start site (with or
+  without `www.`) keeps the plain layout. File and folder names longer than
+  120 bytes are shortened to a prefix plus a hash. Links in the copy are
+  percent-encoded (`a#b.html` → `a%23b.html`).
+- **Redirects.** A page is saved under the address it was linked as, but
+  its relative links are resolved against the address the server
+  redirected to (`/docs` → `/docs/`).
 - **Fast mode and scripts.** Import maps are parsed (targets downloaded,
   values rewritten); scripts are scanned for `import … from`, `export … from`,
   `import()` and `new URL('…', import.meta.url)` (resolved against the script)
@@ -123,10 +131,13 @@ runs the download engine from the command line without the UI (exit code
   renamed into place only when complete; on cancel, network errors, disk
   full or access denied the temp file is removed. Large files are streamed
   to disk, not buffered in memory (HTML and CSS are read into memory because
-  they are rewritten).
+  they are rewritten). A crawled link without a file extension is only kept
+  in memory when it is HTML (by `Content-Type`, or sniffed from its first
+  bytes when the type is missing or generic), at most 32 MB per page.
 - **Resume.** There is no HTTP `Range` resume of a single file; instead a
   resumed run reuses every file that is already complete and downloads the
-  rest.
+  rest. Stylesheets from the earlier run are checked again: references that
+  were not rewritten yet are downloaded and rewritten.
 - **Timeouts and retries.** A request fails when no data arrives for 30 s
   (slow but steady downloads are not cut off). Network errors, timeouts,
   HTTP 408, 429 and 5xx are retried twice with exponential back-off
@@ -180,6 +191,7 @@ runs the download engine from the command line without the UI (exit code
 │           ├── i18n.json    # 30+ language translations
 │           └── vendor/      # offline third-party assets and licenses
 ├── docs/
+│   ├── releases/            # release notes (GitHub release text)
 │   └── images/              # README and documentation images
 ├── tools/
 │   ├── examples/            # standalone usage examples

@@ -5,7 +5,7 @@ REM   - Hides the console window (-H windowsgui)
 REM   - Strips symbol/debug info (-s -w) to shrink the binary (~22 MB -> ~11 MB)
 REM   - -trimpath removes local source paths (user name, drive layout) from
 REM     the binary and makes builds reproducible across machines
-REM Usage: build.bat [version]   e.g. build.bat 2.1.0
+REM Usage: build.bat [version]   e.g. build.bat 2.1.1
 
 set CGO_ENABLED=1
 set GOOS=windows
